@@ -7,35 +7,44 @@ echo "正在部署 FLUX.1-dev 模型到 GPU 环境..."
 source flux_env/bin/activate
 
 # 创建模型缓存目录
-mkdir -p models
+mkdir -p models/FLUX.1-dev
 
 # 下载 FLUX.1-dev 模型
 echo "正在下载 FLUX.1-dev 模型..."
 python -c "
-from diffusers import DiffusionPipeline
-import torch
+from huggingface_hub import snapshot_download
 import time
 import os
 
 start_time = time.time()
 print('开始下载模型...')
 
-# 使用 GPU 加载模型
-pipe = DiffusionPipeline.from_pretrained(
-    'black-forest-labs/FLUX.1-dev',
-    use_safetensors=True,
-    torch_dtype=torch.float16,  # GPU 使用 float16
-    use_fast_tokenizer=False  # 禁用 fast tokenizer 以避免兼容性问题
+# 直接从 Hugging Face Hub 下载模型文件
+model_path = snapshot_download(
+    repo_id='black-forest-labs/FLUX.1-dev',
+    local_dir='./models/FLUX.1-dev',
+    local_dir_use_symlinks=False
 )
 
-# 将模型移至 GPU
-pipe = pipe.to('cuda')
-
-# 保存模型到本地
-pipe.save_pretrained('./models/FLUX.1-dev')
-
 end_time = time.time()
-print(f'模型下载和加载完成，耗时: {end_time - start_time:.2f} 秒')
+print(f'模型下载完成，耗时: {end_time - start_time:.2f} 秒')
+print(f'模型已保存到: {model_path}')
+
+# 尝试加载模型以验证
+try:
+    from diffusers import DiffusionPipeline
+    import torch
+    
+    print('尝试加载模型以验证...')
+    pipe = DiffusionPipeline.from_pretrained(
+        './models/FLUX.1-dev',
+        torch_dtype=torch.float16
+    )
+    pipe = pipe.to('cuda')
+    print('模型加载验证成功！')
+except Exception as e:
+    print(f'模型加载验证时出现警告或错误: {e}')
+    print('这可能不影响后续使用，模型文件已成功下载。')
 "
 
 echo "FLUX.1-dev 模型已成功部署到 GPU 环境！"

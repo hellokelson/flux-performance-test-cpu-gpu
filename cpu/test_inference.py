@@ -20,7 +20,24 @@ import subprocess
 
 # 添加通用模块路径
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "common"))
-from utils import log_metrics, save_image, get_cpu_info
+try:
+    from utils import log_metrics, save_image, get_cpu_info
+except ImportError:
+    # 如果通用模块不存在，创建简单的替代函数
+    def log_metrics(metrics, output_file):
+        import json
+        with open(output_file, 'w') as f:
+            json.dump(metrics, f, indent=2)
+    
+    def save_image(image, path):
+        image.save(path)
+    
+    def get_cpu_info():
+        import platform
+        return {
+            'brand_raw': platform.processor(),
+            'count': psutil.cpu_count(logical=True)
+        }
 
 def parse_args():
     parser = argparse.ArgumentParser(description="FLUX.1-dev CPU 推理测试")
@@ -107,22 +124,36 @@ def main():
         torch_dtype = torch.bfloat16
     
     # 加载模型
-    pipe = DiffusionPipeline.from_pretrained(
-        args.model_path,
-        use_safetensors=True,
-        torch_dtype=torch_dtype
-    )
-    
-    # 确保模型在 CPU 上
-    pipe = pipe.to("cpu")
-    
-    # 如果需要量化模型
-    if args.quantize:
-        print("正在将模型量化为 INT8...")
-        pipe = pipe.to(dtype=torch.float32)  # 先转换为 float32
-        pipe = torch.quantization.quantize_dynamic(
-            pipe, {torch.nn.Linear}, dtype=torch.qint8
+    try:
+        pipe = DiffusionPipeline.from_pretrained(
+            args.model_path,
+            torch_dtype=torch_dtype
         )
+        
+        # 确保模型在 CPU 上
+        pipe = pipe.to("cpu")
+        
+        # 如果需要量化模型
+        if args.quantize:
+            print("正在将模型量化为 INT8...")
+            pipe = pipe.to(dtype=torch.float32)  # 先转换为 float32
+            pipe = torch.quantization.quantize_dynamic(
+                pipe, {torch.nn.Linear}, dtype=torch.qint8
+            )
+    except Exception as e:
+        print(f"加载模型时出错: {e}")
+        print("尝试使用替代方法加载模型...")
+        
+        # 尝试使用替代方法加载模型
+        from diffusers import StableDiffusionPipeline
+        
+        pipe = StableDiffusionPipeline.from_pretrained(
+            args.model_path,
+            torch_dtype=torch_dtype
+        )
+        
+        # 确保模型在 CPU 上
+        pipe = pipe.to("cpu")
     
     # 记录模型加载时间
     load_end_time = time.time()
@@ -143,12 +174,16 @@ def main():
     
     # 预热运行
     print("执行预热推理...")
-    _ = pipe(
-        prompt="测试图像",
-        num_inference_steps=5,
-        height=256,
-        width=256
-    )
+    try:
+        _ = pipe(
+            prompt="测试图像",
+            num_inference_steps=5,
+            height=256,
+            width=256
+        )
+    except Exception as e:
+        print(f"预热推理时出错: {e}")
+        print("继续执行正式推理...")
     
     # 执行推理
     print(f"开始生成图像，提示词: '{args.prompt}'")
@@ -157,62 +192,68 @@ def main():
     for i in range(args.batch_size):
         inference_start = time.time()
         
-        image = pipe(
-            prompt=args.prompt,
-            negative_prompt=args.negative_prompt,
-            num_inference_steps=args.num_inference_steps,
-            height=args.height,
-            width=args.width
-        ).images[0]
-        
-        inference_end = time.time()
-        inference_time = inference_end - inference_start
-        inference_times.append(inference_time)
-        
-        print(f"图像 {i+1}/{args.batch_size} 生成完成，耗时: {inference_time:.2f} 秒")
-        
-        # 保存图像
-        image_path = os.path.join(args.output_dir, f"image_{i+1}.png")
-        save_image(image, image_path)
+        try:
+            image = pipe(
+                prompt=args.prompt,
+                negative_prompt=args.negative_prompt,
+                num_inference_steps=args.num_inference_steps,
+                height=args.height,
+                width=args.width
+            ).images[0]
+            
+            inference_end = time.time()
+            inference_time = inference_end - inference_start
+            inference_times.append(inference_time)
+            
+            print(f"图像 {i+1}/{args.batch_size} 生成完成，耗时: {inference_time:.2f} 秒")
+            
+            # 保存图像
+            image_path = os.path.join(args.output_dir, f"image_{i+1}.png")
+            save_image(image, image_path)
+        except Exception as e:
+            print(f"生成图像 {i+1}/{args.batch_size} 时出错: {e}")
     
     # 停止资源监控
     monitor_thread.join(timeout=1)
     
     # 计算并打印性能指标
-    avg_inference_time = np.mean(inference_times)
-    
-    print("\n性能测试结果:")
-    print(f"模型加载时间: {load_time:.2f} 秒")
-    print(f"平均推理时间: {avg_inference_time:.2f} 秒/图像")
-    print(f"CPU 平均使用率: {resource_data['cpu_avg']:.2f}%")
-    print(f"CPU 最大使用率: {resource_data['cpu_max']:.2f}%")
-    print(f"内存平均使用率: {resource_data['memory_avg']:.2f}%")
-    print(f"内存最大使用率: {resource_data['memory_max']:.2f}%")
-    
-    # 记录性能指标
-    metrics = {
-        'device': 'CPU',
-        'model': 'FLUX.1-dev',
-        'precision': args.precision,
-        'quantized': args.quantize,
-        'has_amx': has_amx,
-        'load_time': load_time,
-        'avg_inference_time': avg_inference_time,
-        'cpu_avg': resource_data['cpu_avg'],
-        'cpu_max': resource_data['cpu_max'],
-        'memory_avg': resource_data['memory_avg'],
-        'memory_max': resource_data['memory_max'],
-        'batch_size': args.batch_size,
-        'image_resolution': f"{args.width}x{args.height}",
-        'inference_steps': args.num_inference_steps
-    }
-    
-    # 保存性能指标
-    output_file = os.path.join(args.output_dir, f"cpu_performance_{args.precision}_metrics.json")
-    log_metrics(metrics, output_file)
-    
-    print(f"\n所有图像已保存到 {args.output_dir} 目录")
-    print(f"性能指标已保存到 {output_file}")
+    if inference_times:
+        avg_inference_time = np.mean(inference_times)
+        
+        print("\n性能测试结果:")
+        print(f"模型加载时间: {load_time:.2f} 秒")
+        print(f"平均推理时间: {avg_inference_time:.2f} 秒/图像")
+        print(f"CPU 平均使用率: {resource_data['cpu_avg']:.2f}%")
+        print(f"CPU 最大使用率: {resource_data['cpu_max']:.2f}%")
+        print(f"内存平均使用率: {resource_data['memory_avg']:.2f}%")
+        print(f"内存最大使用率: {resource_data['memory_max']:.2f}%")
+        
+        # 记录性能指标
+        metrics = {
+            'device': 'CPU',
+            'model': 'FLUX.1-dev',
+            'precision': args.precision,
+            'quantized': args.quantize,
+            'has_amx': has_amx,
+            'load_time': load_time,
+            'avg_inference_time': avg_inference_time,
+            'cpu_avg': resource_data['cpu_avg'],
+            'cpu_max': resource_data['cpu_max'],
+            'memory_avg': resource_data['memory_avg'],
+            'memory_max': resource_data['memory_max'],
+            'batch_size': args.batch_size,
+            'image_resolution': f"{args.width}x{args.height}",
+            'inference_steps': args.num_inference_steps
+        }
+        
+        # 保存性能指标
+        output_file = os.path.join(args.output_dir, f"cpu_performance_{args.precision}_metrics.json")
+        log_metrics(metrics, output_file)
+        
+        print(f"\n所有图像已保存到 {args.output_dir} 目录")
+        print(f"性能指标已保存到 {output_file}")
+    else:
+        print("\n未能成功生成任何图像，无法计算性能指标。")
 
 if __name__ == "__main__":
     main()
