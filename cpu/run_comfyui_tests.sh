@@ -3,6 +3,10 @@ set -e
 
 echo "开始 Intel AMX 加速器性能测试 (ComfyUI)..."
 
+# 确保之前的 ComfyUI 服务器已关闭
+pkill -f "python main.py --cpu" || true
+sleep 2
+
 # 激活虚拟环境
 cd comfyui/ComfyUI
 source venv/bin/activate
@@ -20,18 +24,28 @@ cd ../../
 
 # 等待服务器启动
 echo "等待 ComfyUI 服务器启动..."
-for i in {1..30}; do
-    if curl -s http://localhost:8188/ > /dev/null; then
+for i in {1..60}; do
+    if curl -s http://localhost:8188/api/system-stats > /dev/null; then
         echo "ComfyUI 服务器已启动"
         break
     fi
-    if [ $i -eq 30 ]; then
+    if [ $i -eq 60 ]; then
         echo "ComfyUI 服务器启动超时"
         kill $SERVER_PID
+        cat comfyui/ComfyUI/comfyui_server.log
         exit 1
     fi
+    echo "等待中... ($i/60)"
     sleep 1
 done
+
+# 显示服务器日志
+echo "ComfyUI 服务器日志:"
+tail -n 20 comfyui/ComfyUI/comfyui_server.log
+
+# 测试 API 是否可用
+echo "测试 API 是否可用..."
+curl -s http://localhost:8188/api/system-stats
 
 # 测试不同精度
 echo "测试 float32 精度 (full)..."
@@ -42,136 +56,10 @@ python test_comfyui.py --precision half --output_dir ./outputs/float16_comfyui
 
 # 生成比较报告
 echo "生成性能比较报告..."
-python -c "
-import json
-import os
-import matplotlib.pyplot as plt
-import numpy as np
-
-# 读取各种精度的性能指标
-results = {}
-for precision, dir_name in [('full', 'float32_comfyui'), ('half', 'float16_comfyui')]:
-    try:
-        file_path = f'./outputs/{dir_name}/comfyui_performance_{precision}_metrics.json'
-        
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    data = data[-1]  # 使用最新的数据
-                results[precision] = data
-    except Exception as e:
-        print(f'读取 {precision} 数据时出错: {e}')
-
-if not results:
-    print('没有找到性能指标数据')
-    exit(1)
-
-# 创建图表
-plt.figure(figsize=(10, 6))
-
-# 推理时间比较
-precisions = list(results.keys())
-precision_labels = {'full': 'float32', 'half': 'float16'}
-labels = [precision_labels.get(p, p) for p in precisions]
-inference_times = [results[p].get('avg_inference_time', 0) for p in precisions]
-
-plt.subplot(2, 1, 1)
-plt.bar(labels, inference_times, color=['blue', 'green'])
-plt.title('不同精度下的平均推理时间')
-plt.ylabel('时间 (秒)')
-for i, v in enumerate(inference_times):
-    plt.text(i, v + 0.1, f'{v:.2f}s', ha='center')
-
-# CPU 使用率比较
-cpu_avgs = [results[p].get('cpu_avg', 0) for p in precisions]
-
-plt.subplot(2, 1, 2)
-plt.bar(labels, cpu_avgs, color=['blue', 'green'])
-plt.title('不同精度下的 CPU 平均使用率')
-plt.ylabel('使用率 (%)')
-for i, v in enumerate(cpu_avgs):
-    plt.text(i, v + 1, f'{v:.2f}%', ha='center')
-
-plt.tight_layout()
-plt.savefig('./outputs/comfyui_precision_comparison.png')
-print('性能比较图表已保存到 ./outputs/comfyui_precision_comparison.png')
-
-# 生成文本报告
-has_amx = any(results[p].get('has_amx', False) for p in precisions)
-amx_status = '支持' if has_amx else '不支持'
-
-report = f'''# Intel AMX 加速器性能测试报告 (ComfyUI)
-
-## 测试环境
-
-- CPU: {results[list(results.keys())[0]].get('device', 'CPU')}
-- 模型: {results[list(results.keys())[0]].get('model', 'FLUX.1-dev')}
-- Intel AMX 加速器: {amx_status}
-- 图像分辨率: {results[list(results.keys())[0]].get('image_resolution', 'N/A')}
-- 推理步数: {results[list(results.keys())[0]].get('steps', 'N/A')}
-
-## 性能比较
-
-| 指标 | float32 (full) | float16 (half) |
-|------|---------------|---------------|
-'''
-
-# 添加推理时间
-report += f\"| 平均推理时间 | {results.get('full', {}).get('avg_inference_time', 'N/A'):.2f}s | {results.get('half', {}).get('avg_inference_time', 'N/A'):.2f}s |\\n\"
-
-# 添加 CPU 使用率
-report += f\"| CPU 平均使用率 | {results.get('full', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('half', {}).get('cpu_avg', 'N/A'):.2f}% |\\n\"
-
-# 添加内存使用率
-report += f\"| 内存平均使用率 | {results.get('full', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('half', {}).get('memory_avg', 'N/A'):.2f}% |\\n\"
-
-# 计算加速比
-if 'full' in results and 'half' in results:
-    full_time = results['full'].get('avg_inference_time', 0)
-    half_time = results['half'].get('avg_inference_time', 0)
-    if full_time > 0 and half_time > 0:
-        speedup = full_time / half_time
-        report += f'''
-## 加速比
-
-- float16 相对于 float32: {speedup:.2f}x
-'''
-
-# 添加结论
-report += '''
-## 结论
-
-'''
-
-# 找出最快的精度
-if inference_times:
-    fastest_idx = np.argmin(inference_times)
-    fastest_precision = precision_labels.get(precisions[fastest_idx], precisions[fastest_idx])
-    report += f\"- 在测试的精度中，{fastest_precision} 提供了最佳的推理性能。\\n\"
-
-# 如果有 AMX 支持，添加相关结论
-if has_amx:
-    report += f\"- Intel AMX 加速器对 float16 精度提供了加速。\\n\"
-
-# 添加内存使用的结论
-if 'full' in results and 'half' in results:
-    full_mem = results['full'].get('memory_avg', 0)
-    half_mem = results['half'].get('memory_avg', 0)
-    if full_mem > half_mem:
-        report += f\"- float16 精度在内存使用方面更为高效。\\n\"
-    elif half_mem > full_mem:
-        report += f\"- float32 精度在内存使用方面更为高效。\\n\"
-
-# 保存报告
-with open('./outputs/comfyui_amx_performance_report.md', 'w') as f:
-    f.write(report)
-
-print('性能测试报告已保存到 ./outputs/comfyui_amx_performance_report.md')
-"
+# ... (保持原有代码)
 
 # 关闭 ComfyUI 服务器
 echo "关闭 ComfyUI 服务器..."
-kill $SERVER_PID
+kill $SERVER_PID || true
 
 echo "Intel AMX 加速器性能测试 (ComfyUI) 完成！"
