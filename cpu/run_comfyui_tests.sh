@@ -1,59 +1,31 @@
 #!/bin/bash
 set -e
 
-echo "开始 Intel AMX 加速器性能测试 (ComfyUI 方式)..."
+echo "开始 Intel AMX 加速器性能测试 (纯 CPU 环境)..."
 
-# 确保 ComfyUI 环境已设置
-if [ ! -d "comfyui/ComfyUI" ]; then
-    echo "错误: ComfyUI 目录不存在，请先运行 setup_comfyui.sh"
-    exit 1
+# 创建虚拟环境（如果不存在）
+if [ ! -d "cpu_env" ]; then
+    echo "创建虚拟环境..."
+    python3 -m venv cpu_env
 fi
 
-# 激活 ComfyUI 虚拟环境
-cd comfyui/ComfyUI
-source venv/bin/activate
-cd ../../
+# 激活虚拟环境
+source cpu_env/bin/activate
 
-# 检查 FLUX.1-dev 模型文件
-MODEL_PATH="comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors"
-if [ ! -f "$MODEL_PATH" ]; then
-    echo "警告: FLUX.1-dev 模型文件不存在: $MODEL_PATH"
-    
-    # 查找其他可能的位置
-    ALT_PATHS=(
-        "./models/FLUX.1-dev/flux1-dev.safetensors"
-        "./models/flux_1_dev.safetensors"
-        "./comfyui/ComfyUI/models/checkpoints/flux1-dev.safetensors"
-    )
-    
-    for ALT_PATH in "${ALT_PATHS[@]}"; do
-        if [ -f "$ALT_PATH" ]; then
-            echo "找到替代模型文件: $ALT_PATH"
-            # 创建符号链接
-            mkdir -p $(dirname "$MODEL_PATH")
-            if [ -f "$MODEL_PATH" ]; then
-                rm "$MODEL_PATH"
-            fi
-            ln -sf $(realpath "$ALT_PATH") "$MODEL_PATH"
-            echo "已创建符号链接: $MODEL_PATH -> $ALT_PATH"
-            break
-        fi
-    done
-    
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "错误: 未找到 FLUX.1-dev 模型文件，请确保已下载模型"
-        exit 1
-    fi
-fi
+# 安装依赖
+echo "安装依赖..."
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install diffusers transformers accelerate safetensors
+pip install numpy matplotlib psutil py-cpuinfo pillow
 
 # 创建输出目录
 mkdir -p outputs
 
 # 测试不同精度
-echo "测试 float32 精度 (full)..."
+echo "测试 float32 精度..."
 python test_comfyui.py --precision full --output_dir ./outputs/float32_flux
 
-echo "测试 float16 精度 (half)..."
+echo "测试 float16 精度..."
 python test_comfyui.py --precision half --output_dir ./outputs/float16_flux
 
 # 生成比较报告
