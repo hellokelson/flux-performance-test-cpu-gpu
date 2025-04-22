@@ -12,7 +12,7 @@ source venv/bin/activate
 # 安装 huggingface_hub 用于下载模型
 pip install huggingface_hub
 
-# 列出仓库中的文件
+# 列出 FLUX.1-dev 仓库中的文件
 echo "列出 FLUX.1-dev 仓库中的文件..."
 python -c "
 from huggingface_hub import list_repo_files
@@ -25,7 +25,7 @@ for file in files:
 # 下载 FLUX.1-dev 模型
 echo "正在下载 FLUX.1-dev 模型..."
 python -c "
-from huggingface_hub import hf_hub_download
+from huggingface_hub import snapshot_download
 import os
 import time
 import shutil
@@ -36,60 +36,24 @@ print('开始下载模型...')
 # 创建模型目录
 os.makedirs('models/checkpoints', exist_ok=True)
 
-# 下载主模型文件 (使用正确的文件名)
-try:
-    # 尝试下载 model.safetensors
-    model_path = hf_hub_download(
-        repo_id='black-forest-labs/FLUX.1-dev',
-        filename='model.safetensors',
-        local_dir='models/checkpoints'
-    )
-    print(f'模型已下载到: {model_path}')
-    
-    # 重命名为 ComfyUI 可识别的名称
-    target_path = os.path.join('models/checkpoints', 'flux_1_dev.safetensors')
-    shutil.copy(model_path, target_path)
-    print(f'模型已复制到: {target_path}')
-except Exception as e:
-    print(f'下载 model.safetensors 失败: {e}')
-    print('尝试下载其他文件...')
-    
-    # 列出仓库中的所有 .safetensors 文件
-    from huggingface_hub import list_repo_files
-    files = list_repo_files('black-forest-labs/FLUX.1-dev')
-    safetensors_files = [f for f in files if f.endswith('.safetensors')]
-    
-    if safetensors_files:
-        print(f'找到以下 .safetensors 文件: {safetensors_files}')
-        for file in safetensors_files:
-            try:
-                model_path = hf_hub_download(
-                    repo_id='black-forest-labs/FLUX.1-dev',
-                    filename=file,
-                    local_dir='models/checkpoints'
-                )
-                print(f'文件已下载到: {model_path}')
-                
-                # 重命名为 ComfyUI 可识别的名称
-                target_path = os.path.join('models/checkpoints', 'flux_1_dev.safetensors')
-                shutil.copy(model_path, target_path)
-                print(f'模型已复制到: {target_path}')
-                break
-            except Exception as e2:
-                print(f'下载 {file} 失败: {e2}')
-    else:
-        print('未找到 .safetensors 文件')
+# 下载整个仓库
+model_path = snapshot_download(
+    repo_id='black-forest-labs/FLUX.1-dev',
+    local_dir='models/checkpoints/flux_1_dev_repo',
+    local_dir_use_symlinks=False
+)
 
-# 下载配置文件
-try:
-    config_path = hf_hub_download(
-        repo_id='black-forest-labs/FLUX.1-dev',
-        filename='config.json',
-        local_dir='models/checkpoints'
+print(f'模型已下载到: {model_path}')
+
+# 复制主要模型文件到 checkpoints 目录
+if os.path.exists(os.path.join(model_path, 'flux1-dev.safetensors')):
+    shutil.copy(
+        os.path.join(model_path, 'flux1-dev.safetensors'),
+        'models/checkpoints/flux_1_dev.safetensors'
     )
-    print(f'配置文件已下载到: {config_path}')
-except Exception as e:
-    print(f'下载配置文件失败: {e}')
+    print(f'已复制模型文件到: models/checkpoints/flux_1_dev.safetensors')
+else:
+    print('警告: 未找到 flux1-dev.safetensors 文件')
 
 end_time = time.time()
 print(f'模型下载完成，耗时: {end_time - start_time:.2f} 秒')
