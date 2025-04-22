@@ -35,6 +35,12 @@ source venv/bin/activate
 echo "安装 PyTorch CPU 版本..."
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
+# 先安装特定版本的依赖项，解决兼容性问题
+echo "安装特定版本的依赖项..."
+pip install protobuf==3.20.3 sentencepiece==0.1.99
+# 安装与 transformers 兼容的 huggingface-hub 版本
+pip install huggingface-hub>=0.30.0
+
 # 安装 ComfyUI 依赖
 echo "安装 ComfyUI 依赖..."
 # ComfyUI 的 requirements.txt 文件在克隆的仓库中
@@ -50,10 +56,6 @@ fi
 # 安装性能监控工具
 echo "安装性能监控工具..."
 pip install psutil py-cpuinfo matplotlib numpy pandas requests
-
-# 安装特定版本的依赖项，解决兼容性问题
-echo "安装特定版本的依赖项..."
-pip install protobuf==3.20.3 sentencepiece==0.1.99 huggingface_hub==0.16.4
 
 # 创建模型目录
 echo "创建模型目录..."

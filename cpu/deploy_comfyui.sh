@@ -9,8 +9,8 @@ cd comfyui/ComfyUI
 # 激活虚拟环境
 source venv/bin/activate
 
-# 安装 huggingface_hub 用于下载模型
-pip install huggingface_hub
+# 确保 huggingface_hub 已安装
+pip install huggingface_hub>=0.30.0
 
 # 列出 FLUX.1-dev 仓库中的文件
 echo "列出 FLUX.1-dev 仓库中的文件..."
