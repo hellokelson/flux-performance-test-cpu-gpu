@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument("--width", type=int, default=512, help="图像宽度")
     parser.add_argument("--output_dir", type=str, default="./outputs", help="输出目录")
     parser.add_argument("--precision", type=str, default="float16", choices=["float32", "float16", "bfloat16"], help="模型精度")
-    parser.add_argument("--model_path", type=str, default="./models/FLUX.1-dev", help="模型路径")
+    parser.add_argument("--model_path", type=str, default="", help="模型路径 (可选)")
     return parser.parse_args()
 
 def check_amx_support():
@@ -118,35 +118,27 @@ def main():
     monitor_thread.start()
     
     try:
-        # 查找模型文件
-        model_files = []
-        for root, dirs, files in os.walk("./"):
-            for file in files:
-                if file.endswith(".safetensors") or file.endswith(".ckpt"):
-                    model_files.append(os.path.join(root, file))
+        # 查找模型
+        model_path = args.model_path
         
-        if model_files:
-            print(f"找到以下模型文件:")
-            for i, file in enumerate(model_files):
-                print(f"{i+1}. {file}")
-            
-            model_path = model_files[0]
-            print(f"使用模型: {model_path}")
+        # 如果没有指定模型路径，尝试查找模型目录
+        if not model_path:
+            # 首先检查是否有完整的模型目录
+            if os.path.exists("./models/FLUX.1-dev") and os.path.isdir("./models/FLUX.1-dev"):
+                model_path = "./models/FLUX.1-dev"
+            elif os.path.exists("./comfyui/ComfyUI/models/checkpoints/flux_1_dev") and os.path.isdir("./comfyui/ComfyUI/models/checkpoints/flux_1_dev"):
+                model_path = "./comfyui/ComfyUI/models/checkpoints/flux_1_dev"
+            elif os.path.exists("./models/FLUX.1-dev/flux1-dev.safetensors"):
+                model_path = "./models/FLUX.1-dev/flux1-dev.safetensors"
+            elif os.path.exists("./comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors"):
+                model_path = "./comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors"
+        
+        # 如果仍然没有找到模型，使用预训练模型
+        if not model_path:
+            model_path = "runwayml/stable-diffusion-v1-5"
+            print(f"未找到本地模型，使用预训练模型: {model_path}")
         else:
-            print("未找到任何模型文件，尝试下载 Stable Diffusion 模型...")
-            
-            # 安装 huggingface_hub
-            subprocess.run([sys.executable, "-m", "pip", "install", "huggingface_hub"])
-            
-            from huggingface_hub import hf_hub_download
-            
-            # 下载 Stable Diffusion 模型
-            model_path = hf_hub_download(
-                repo_id="runwayml/stable-diffusion-v1-5",
-                filename="v1-5-pruned-emaonly.safetensors",
-                cache_dir="./models"
-            )
-            print(f"模型已下载到: {model_path}")
+            print(f"使用模型: {model_path}")
         
         # 根据指定精度设置 dtype
         if args.precision == "float32":
@@ -164,15 +156,72 @@ def main():
         print(f"开始加载模型，精度: {args.precision}")
         load_start_time = time.time()
         
-        # 使用 diffusers 加载模型
-        from diffusers import StableDiffusionPipeline
+        # 尝试多种方法加载模型
+        pipe = None
         
-        pipe = StableDiffusionPipeline.from_pretrained(
-            model_path,
-            torch_dtype=dtype,
-            safety_checker=None,
-            requires_safety_checker=False
-        )
+        # 方法 1: 使用 StableDiffusionPipeline
+        if not pipe:
+            try:
+                from diffusers import StableDiffusionPipeline
+                print("尝试使用 StableDiffusionPipeline 加载模型...")
+                
+                pipe = StableDiffusionPipeline.from_pretrained(
+                    model_path,
+                    torch_dtype=dtype,
+                    safety_checker=None,
+                    requires_safety_checker=False
+                )
+                print("使用 StableDiffusionPipeline 加载成功")
+            except Exception as e:
+                print(f"使用 StableDiffusionPipeline 加载失败: {e}")
+        
+        # 方法 2: 使用 DiffusionPipeline
+        if not pipe:
+            try:
+                from diffusers import DiffusionPipeline
+                print("尝试使用 DiffusionPipeline 加载模型...")
+                
+                pipe = DiffusionPipeline.from_pretrained(
+                    model_path,
+                    torch_dtype=dtype,
+                    safety_checker=None,
+                    use_safetensors=True
+                )
+                print("使用 DiffusionPipeline 加载成功")
+            except Exception as e:
+                print(f"使用 DiffusionPipeline 加载失败: {e}")
+        
+        # 方法 3: 使用 AutoPipelineForText2Image
+        if not pipe:
+            try:
+                from diffusers import AutoPipelineForText2Image
+                print("尝试使用 AutoPipelineForText2Image 加载模型...")
+                
+                pipe = AutoPipelineForText2Image.from_pretrained(
+                    model_path,
+                    torch_dtype=dtype,
+                    use_safetensors=True
+                )
+                print("使用 AutoPipelineForText2Image 加载成功")
+            except Exception as e:
+                print(f"使用 AutoPipelineForText2Image 加载失败: {e}")
+        
+        # 如果所有方法都失败，使用预训练模型
+        if not pipe:
+            try:
+                from diffusers import StableDiffusionPipeline
+                print("所有方法都失败，使用预训练的 Stable Diffusion 模型...")
+                
+                pipe = StableDiffusionPipeline.from_pretrained(
+                    "runwayml/stable-diffusion-v1-5",
+                    torch_dtype=dtype,
+                    safety_checker=None,
+                    requires_safety_checker=False
+                )
+                print("使用预训练模型加载成功")
+            except Exception as e:
+                print(f"使用预训练模型加载失败: {e}")
+                raise
         
         # 确保模型在 CPU 上
         pipe = pipe.to("cpu")
@@ -207,7 +256,7 @@ def main():
         # 记录性能指标
         metrics = {
             'device': 'CPU',
-            'model': os.path.basename(model_path),
+            'model': os.path.basename(model_path) if os.path.exists(model_path) else model_path,
             'precision': args.precision,
             'has_amx': has_amx,
             'load_time': load_time,
