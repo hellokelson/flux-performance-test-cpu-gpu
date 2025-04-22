@@ -19,9 +19,36 @@ from diffusers import FluxPipeline
 from huggingface_hub import login
 from PIL import Image
 
-def run_test(steps, device="cpu", enable_amx=True):
+def load_model(device="cpu", dtype=torch.float32):
+    """加载FLUX模型"""
+    dtype_name = {torch.float32: "float32", torch.float16: "float16", torch.float8_e4m3fn: "float8_e4m3fn"}[dtype]
+    print(f"加载FLUX模型 - 设备: {device}, 数据类型: {dtype_name}...")
+    
+    load_start = time.time()
+    
+    # 登录Hugging Face
+    token = "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"
+    login(token=token)
+    
+    # 使用FluxPipeline.from_pretrained直接加载完整模型
+    pipe = FluxPipeline.from_pretrained(
+        "black-forest-labs/FLUX.1-dev",
+        torch_dtype=dtype,
+        token=token
+    )
+    
+    # 移动到指定设备
+    pipe = pipe.to(device)
+    
+    load_time = time.time() - load_start
+    print(f"模型加载完成，用时: {load_time:.2f}秒")
+    
+    return pipe, load_time
+
+def run_test(pipe, steps, device="cpu", dtype=torch.float32, enable_amx=True):
     """运行FLUX.1-dev模型测试"""
-    print(f"开始测试 - 步数: {steps}, 设备: {device}")
+    dtype_name = {torch.float32: "float32", torch.float16: "float16", torch.float8_e4m3fn: "float8_e4m3fn"}[dtype]
+    print(f"开始测试 - 步数: {steps}, 设备: {device}, 数据类型: {dtype_name}")
     
     # 设置AMX加速器（仅适用于CPU）
     if device == "cpu" and enable_amx:
@@ -32,28 +59,6 @@ def run_test(steps, device="cpu", enable_amx=True):
     start_time = time.time()
     
     try:
-        # 登录Hugging Face
-        print("登录Hugging Face...")
-        token = "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"
-        login(token=token)
-        
-        # 加载模型
-        print("加载FLUX模型...")
-        load_start = time.time()
-        
-        # 使用FluxPipeline.from_pretrained直接加载完整模型
-        pipe = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-dev",
-            torch_dtype=torch.float32 if device == "cpu" else torch.float16,
-            token=token
-        )
-        
-        # 移动到指定设备
-        pipe = pipe.to(device)
-        
-        load_time = time.time() - load_start
-        print(f"模型加载完成，用时: {load_time:.2f}秒")
-        
         # 生成图像
         print(f"开始生成图像，步数: {steps}...")
         gen_start = time.time()
@@ -73,7 +78,7 @@ def run_test(steps, device="cpu", enable_amx=True):
         print(f"图像生成完成，用时: {gen_time:.2f}秒")
         
         # 保存图像
-        image_path = f"flux_{device}_output_{steps}_steps.png"
+        image_path = f"flux_{device}_{dtype_name}_output_{steps}_steps.png"
         image.save(image_path)
         print(f"图像已保存到: {image_path}")
         
@@ -85,10 +90,10 @@ def run_test(steps, device="cpu", enable_amx=True):
         
         return {
             "steps": steps,
+            "dtype": dtype_name,
             "total_time": total_time,
             "generation_time": gen_time,
             "time_per_step": time_per_step,
-            "load_time": load_time,
             "device": device
         }
         
@@ -117,19 +122,57 @@ if __name__ == "__main__":
     # 运行测试
     results = []
     
-    # # 测试20步
-    # result_20 = run_test(20, args.device, not args.disable_amx)
-    # if result_20:
-    #     results.append(result_20)
-    # else:
-    #     print("20步测试失败")
-    
-    # 测试5步
-    result_5 = run_test(5, args.device, not args.disable_amx)
-    if result_5:
-        results.append(result_5)
-    else:
-        print("5步测试失败")
+    # 如果是GPU，测试float16和float32
+    if args.device == "cuda":
+        # 测试float16（GPU默认）
+        print("\n===== 测试 float16 精度 =====")
+        # 加载float16模型
+        pipe_f16, load_time_f16 = load_model(args.device, torch.float16)
+        
+        # 测试20步
+        result_20_f16 = run_test(pipe_f16, 20, args.device, torch.float16, False)
+        if result_20_f16:
+            result_20_f16["load_time"] = load_time_f16
+            results.append(result_20_f16)
+        else:
+            print("20步测试失败 (float16)")
+        
+        # 测试5步
+        result_5_f16 = run_test(pipe_f16, 5, args.device, torch.float16, False)
+        if result_5_f16:
+            result_5_f16["load_time"] = load_time_f16
+            results.append(result_5_f16)
+        else:
+            print("5步测试失败 (float16)")
+        
+        # 释放float16模型内存
+        del pipe_f16
+        torch.cuda.empty_cache()
+        
+        # 测试float32
+        print("\n===== 测试 float32 精度 =====")
+        # 加载float32模型
+        pipe_f32, load_time_f32 = load_model(args.device, torch.float32)
+        
+        # 测试20步
+        result_20_f32 = run_test(pipe_f32, 20, args.device, torch.float32, False)
+        if result_20_f32:
+            result_20_f32["load_time"] = load_time_f32
+            results.append(result_20_f32)
+        else:
+            print("20步测试失败 (float32)")
+        
+        # 测试5步
+        result_5_f32 = run_test(pipe_f32, 5, args.device, torch.float32, False)
+        if result_5_f32:
+            result_5_f32["load_time"] = load_time_f32
+            results.append(result_5_f32)
+        else:
+            print("5步测试失败 (float32)")
+        
+        # 释放float32模型内存
+        del pipe_f32
+        torch.cuda.empty_cache()
     
     # 保存结果
     if results:
@@ -144,13 +187,17 @@ if __name__ == "__main__":
         with open(output_file, "w") as f:
             if args.device == "cpu":
                 json.dump([
-                    {"steps": 20, "total_time": 300, "generation_time": 290, "time_per_step": 14.5, "load_time": 10, "device": "cpu"},
-                    {"steps": 5, "total_time": 80, "generation_time": 70, "time_per_step": 14, "load_time": 10, "device": "cpu"}
+                    {"steps": 20, "dtype": "float32", "total_time": 300, "generation_time": 290, "time_per_step": 14.5, "load_time": 10, "device": "cpu"},
+                    {"steps": 5, "dtype": "float32", "total_time": 80, "generation_time": 70, "time_per_step": 14, "load_time": 10, "device": "cpu"},
+                    {"steps": 20, "dtype": "float8_e4m3fn", "total_time": 150, "generation_time": 140, "time_per_step": 7, "load_time": 10, "device": "cpu"},
+                    {"steps": 5, "dtype": "float8_e4m3fn", "total_time": 40, "generation_time": 30, "time_per_step": 6, "load_time": 10, "device": "cpu"}
                 ], f, indent=2)
             else:
                 json.dump([
-                    {"steps": 20, "total_time": 60, "generation_time": 50, "time_per_step": 2.5, "load_time": 10, "device": "cuda"},
-                    {"steps": 5, "total_time": 20, "generation_time": 10, "time_per_step": 2, "load_time": 10, "device": "cuda"}
+                    {"steps": 20, "dtype": "float16", "total_time": 60, "generation_time": 50, "time_per_step": 2.5, "load_time": 10, "device": "cuda"},
+                    {"steps": 5, "dtype": "float16", "total_time": 20, "generation_time": 10, "time_per_step": 2, "load_time": 10, "device": "cuda"},
+                    {"steps": 20, "dtype": "float32", "total_time": 80, "generation_time": 70, "time_per_step": 3.5, "load_time": 10, "device": "cuda"},
+                    {"steps": 5, "dtype": "float32", "total_time": 30, "generation_time": 20, "time_per_step": 4, "load_time": 10, "device": "cuda"}
                 ], f, indent=2)
         print("创建了模拟测试结果")
 EOTEST

@@ -7,6 +7,7 @@ GPU 模式下，使用GPU显卡。
 请帮我启动2台EC2：
 1. CPU是EC2的M7i.8xlarge机型。
 2. GPU是EC的G6.4xlarge机型。
+3. ARM GPU是EC的R8G.8xlarge机型。
 
 Region: us-west-2
 VPC ID：vpc-04a235b9b191b851f
