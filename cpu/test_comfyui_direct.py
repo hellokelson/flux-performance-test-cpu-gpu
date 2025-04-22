@@ -235,4 +235,5 @@ def main():
         print(f"导入 ComfyUI 模块失败: {e}")
         print("请确保 ComfyUI 已正确安装")
 
-if __name__ ==
+if __name__ == "__main__":
+    main()
