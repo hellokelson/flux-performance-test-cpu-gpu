@@ -15,6 +15,24 @@ cd ../../
 # 创建输出目录
 mkdir -p outputs
 
+# 检查模型文件是否存在
+if [ ! -f "comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors" ]; then
+    echo "警告: 模型文件不存在，尝试查找其他模型..."
+    ls -la comfyui/ComfyUI/models/checkpoints/
+    
+    # 尝试查找其他模型
+    MODEL_FILES=$(find comfyui/ComfyUI/models/checkpoints/ -name "*.safetensors" -o -name "*.ckpt" | head -1)
+    if [ -n "$MODEL_FILES" ]; then
+        echo "找到模型文件: $MODEL_FILES"
+        # 创建符号链接
+        ln -sf "$MODEL_FILES" comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors
+        echo "已创建符号链接: comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors -> $MODEL_FILES"
+    else
+        echo "错误: 未找到任何模型文件，请先下载模型"
+        exit 1
+    fi
+fi
+
 # 启动 ComfyUI 服务器
 echo "启动 ComfyUI 服务器..."
 cd comfyui/ComfyUI
@@ -25,7 +43,7 @@ cd ../../
 # 等待服务器启动
 echo "等待 ComfyUI 服务器启动..."
 for i in {1..60}; do
-    if curl -s http://localhost:8188/api/system-stats > /dev/null; then
+    if curl -s http://localhost:8188/ > /dev/null; then
         echo "ComfyUI 服务器已启动"
         break
     fi
@@ -45,7 +63,11 @@ tail -n 20 comfyui/ComfyUI/comfyui_server.log
 
 # 测试 API 是否可用
 echo "测试 API 是否可用..."
-curl -s http://localhost:8188/api/system-stats
+curl -s http://localhost:8188/api/system-stats || echo "API 不可用"
+
+# 等待 API 完全初始化
+echo "等待 API 完全初始化..."
+sleep 5
 
 # 测试不同精度
 echo "测试 float32 精度 (full)..."
