@@ -6,6 +6,7 @@ echo "正在初始化 GPU (G6) 环境..."
 # 更新系统并安装基础依赖 (Amazon Linux 2023 使用 dnf)
 sudo dnf update -y
 sudo dnf install -y python3-pip python3-devel git wget htop
+sudo dnf install kernel-modules-extra.x86_64
 
 # 检查 NVIDIA 驱动是否已安装
 if ! command -v nvidia-smi &> /dev/null; then
