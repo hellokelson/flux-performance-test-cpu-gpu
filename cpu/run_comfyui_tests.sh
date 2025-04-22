@@ -1,29 +1,11 @@
 #!/bin/bash
 set -e
 
-echo "开始 Intel AMX 加速器性能测试 (纯 CPU 环境)..."
+echo "开始 FLUX.1-dev ComfyUI 性能测试 (纯 CPU 环境)..."
 
-# 创建虚拟环境（如果不存在）
-if [ ! -d "cpu_env" ]; then
-    echo "创建虚拟环境..."
-    python3 -m venv cpu_env
-fi
-
-# 激活虚拟环境
-source cpu_env/bin/activate
-
-# 安装依赖
-echo "安装依赖..."
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install diffusers transformers accelerate safetensors
-pip install numpy matplotlib psutil py-cpuinfo pillow
-
-# 安装特定版本的依赖项，解决兼容性问题
-echo "安装特定版本的依赖项..."
-pip install protobuf==3.20.3
-pip install sentencepiece==0.1.99
-pip install tokenizers==0.13.3
-pip install huggingface_hub==0.16.4
+# 确保 ComfyUI 服务器已关闭
+pkill -f "python main.py --cpu" || true
+sleep 2
 
 # 创建输出目录
 mkdir -p outputs
@@ -116,7 +98,7 @@ print('性能比较图表已保存到 ./outputs/flux_precision_comparison.png')
 has_amx = any(results[p].get('has_amx', False) for p in precisions)
 amx_status = '支持' if has_amx else '不支持'
 
-report = f'''# FLUX.1-dev 模型 Intel AMX 加速器性能测试报告
+report = f'''# FLUX.1-dev 模型 ComfyUI 性能测试报告
 
 ## 测试环境
 
@@ -179,10 +161,10 @@ if memory_avgs:
     report += f\"- {lowest_mem_precision} 精度在内存使用方面更为高效。\\n\"
 
 # 保存报告
-with open('./outputs/flux_amx_performance_report.md', 'w') as f:
+with open('./outputs/flux_comfyui_performance_report.md', 'w') as f:
     f.write(report)
 
-print('性能测试报告已保存到 ./outputs/flux_amx_performance_report.md')
+print('性能测试报告已保存到 ./outputs/flux_comfyui_performance_report.md')
 "
 
-echo "FLUX.1-dev 模型 Intel AMX 加速器性能测试完成！"
+echo "FLUX.1-dev 模型 ComfyUI 性能测试完成！"

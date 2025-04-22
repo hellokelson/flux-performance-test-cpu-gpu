@@ -189,18 +189,38 @@ def main():
             
             # 使用 ComfyUI 的方式加载模型
             from comfy.sd import load_checkpoint_guess_config
-            model, clip, vae = load_checkpoint_guess_config(
-                model_path,
-                output_vae=True,
-                output_clip=True,
-                embedding_directory=None,
-                dtype=dtype
-            )
             
-            # 将模型移至 GPU
-            model.to("cuda")
-            clip.to("cuda")
-            vae.to("cuda")
+            # 设置精度
+            torch_dtype = torch.float16 if args.precision == "half" else torch.float32
+            
+            # 加载模型 (ComfyUI 会自动将模型移至 GPU)
+            try:
+                model, clip, vae, _ = load_checkpoint_guess_config(
+                    ckpt_path=model_path,
+                    output_vae=True,
+                    output_clip=True,
+                    embedding_directory=None,
+                    output_pooled=True,
+                    device="cuda",
+                    dtype=torch_dtype
+                )
+            except TypeError:
+                # 如果 ComfyUI 版本较旧，可能不支持某些参数
+                print("尝试使用兼容模式加载模型...")
+                model, clip, vae = load_checkpoint_guess_config(
+                    ckpt_path=model_path,
+                    output_vae=True,
+                    output_clip=True,
+                    embedding_directory=None
+                )
+                # 手动设置精度和设备
+                if args.precision == "half":
+                    model = model.half()
+                    clip = clip.half()
+                    vae = vae.half()
+                model = model.to("cuda")
+                clip = clip.to("cuda")
+                vae = vae.to("cuda")
             
             load_time = time.time() - load_start_time
             print(f"模型加载完成，耗时: {load_time:.2f} 秒")
@@ -211,7 +231,6 @@ def main():
             
             # 使用 ComfyUI 的方式进行推理
             from comfy.sd import CLIP
-            from comfy.sample import sample
             from comfy.samplers import KSampler
             
             # 编码提示词
@@ -223,21 +242,26 @@ def main():
             latent = torch.zeros([1, 4, args.height // 8, args.width // 8], device="cuda")
             
             # 设置采样器
-            sampler = KSampler(model)
+            sampler = KSampler()
             samples = sampler.sample(
-                positive_prompt, 
-                negative_prompt, 
-                latent, 
-                args.steps, 
-                7.0,  # cfg_scale
-                "euler_ancestral",  # sampler_name
-                "normal",  # scheduler
-                1.0  # denoise
+                model=model,
+                positive=positive_prompt, 
+                negative=negative_prompt, 
+                latent=latent, 
+                steps=args.steps, 
+                cfg=7.0,  # cfg_scale
+                sampler_name="euler_ancestral",  # sampler_name
+                scheduler="normal",  # scheduler
+                denoise=1.0,  # denoise
+                disable_noise=False,
+                start_step=0,
+                last_step=args.steps,
+                force_full_denoise=True
             )
             
             # 解码图像
             from comfy.utils import latent_to_image
-            images = latent_to_image(vae, samples)
+            images = latent_to_image(samples, vae)
             
             inference_time = time.time() - inference_start_time
             print(f"图像生成完成，耗时: {inference_time:.2f} 秒")

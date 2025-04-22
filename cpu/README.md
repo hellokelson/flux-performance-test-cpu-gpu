@@ -1,90 +1,82 @@
-# FLUX.1-dev 模型 CPU 性能测试 (ComfyUI)
+# FLUX.1-dev 模型 CPU 性能测试
 
-本目录包含使用 ComfyUI 测试 FLUX.1-dev 模型在 CPU 环境下的性能表现的脚本，特别关注 Intel AMX 加速器的性能提升。
+本目录包含在 CPU 环境下测试 black-forest-labs/FLUX.1-dev 模型性能的脚本。测试使用 ComfyUI 作为推理框架。
 
 ## 文件说明
 
 - `setup_comfyui.sh`: 安装 ComfyUI 和所需依赖
-- `deploy_comfyui.sh`: 下载 FLUX.1-dev 模型
-- `test_comfyui.py`: 使用 ComfyUI API 进行性能测试
-- `run_comfyui_tests.sh`: 自动测试不同精度并生成比较报告
+- `deploy_comfyui.sh`: 下载 FLUX.1-dev 模型到 ComfyUI
+- `start_comfyui.sh`: 启动 ComfyUI 服务器进行手动测试
+- `test_comfyui.py`: 自动化测试脚本，用于测量性能指标
+- `run_comfyui_tests.sh`: 批量运行不同精度的测试并生成比较报告
+- `all_in_one.sh`: 一键执行完整测试流程（安装、部署、测试）
 
 ## 使用方法
 
-### 1. 安装 ComfyUI 和依赖
+### 一键测试
+
+执行以下命令完成全部测试流程：
+
+```bash
+bash all_in_one.sh
+```
+
+### 分步测试
+
+1. 安装 ComfyUI 和依赖：
 
 ```bash
 bash setup_comfyui.sh
 ```
 
-这将：
-- 安装所需的系统依赖
-- 克隆 ComfyUI 仓库
-- 创建虚拟环境
-- 安装 PyTorch CPU 版本和其他依赖
-
-### 2. 下载 FLUX.1-dev 模型
+2. 下载 FLUX.1-dev 模型：
 
 ```bash
 bash deploy_comfyui.sh
 ```
 
-这将从 Hugging Face 下载 FLUX.1-dev 模型到 ComfyUI 的模型目录。
-
-### 3. 运行性能测试
-
-#### 单次测试
+3. 启动 ComfyUI 服务器进行手动测试（可选）：
 
 ```bash
-# 启动 ComfyUI 服务器
-cd comfyui/ComfyUI
-source venv/bin/activate
-python main.py --cpu --port 8188 &
-
-# 在另一个终端中运行测试
-python test_comfyui.py --precision half --output_dir ./outputs/float16
+bash start_comfyui.sh
 ```
 
-参数说明：
-- `--precision`: 选择模型精度，可选值为 "full"（float32）或 "half"（float16）
-- `--steps`: 设置推理步数
-- `--prompt`: 自定义生成图像的提示词
-- `--output_dir`: 指定输出目录
-
-#### 自动测试
+4. 运行自动化性能测试：
 
 ```bash
 bash run_comfyui_tests.sh
 ```
 
-这将：
-1. 启动 ComfyUI 服务器
-2. 测试 float32（full）和 float16（half）精度
-3. 生成性能比较图表和报告
-4. 关闭 ComfyUI 服务器
+## 测试参数
+
+`test_comfyui.py` 脚本支持以下参数：
+
+- `--prompt`: 生成图像的提示词（默认：一只可爱的小猫咪在草地上玩耍）
+- `--negative_prompt`: 负面提示词（默认：模糊的, 低质量的）
+- `--steps`: 推理步数（默认：20）
+- `--height`: 图像高度（默认：512）
+- `--width`: 图像宽度（默认：512）
+- `--output_dir`: 输出目录（默认：./outputs）
+- `--precision`: 模型精度，可选 full (float32) 或 half (float16)（默认：half）
+- `--server_url`: ComfyUI 服务器 URL（默认：http://127.0.0.1:8188）
+
+示例：
+
+```bash
+python test_comfyui.py --precision full --steps 30 --output_dir ./outputs/custom_test
+```
 
 ## 测试结果
 
-测试结果将保存在 `./outputs/` 目录下，包括：
+测试结果将保存在 `./outputs/` 目录中，包括：
+
 - 生成的图像
 - 性能指标 JSON 文件
-- 比较图表 (`comfyui_precision_comparison.png`)
-- 性能测试报告 (`comfyui_amx_performance_report.md`)
-
-## 手动使用 ComfyUI
-
-如果您想直接通过 ComfyUI 的 Web 界面进行测试：
-
-```bash
-cd comfyui/ComfyUI
-source venv/bin/activate
-python main.py --cpu
-```
-
-然后在浏览器中访问 http://localhost:8188
+- 比较图表 (`flux_precision_comparison.png`)
+- 性能测试报告 (`flux_comfyui_performance_report.md`)
 
 ## 注意事项
 
-- ComfyUI 目前不直接支持 bfloat16 精度，因此我们只测试 float32 和 float16
-- 确保您的系统有足够的内存运行 FLUX.1-dev 模型
-- 测试结果可能因系统配置和负载而异
+- 测试需要足够的 CPU 资源和内存
+- 首次运行时需要下载模型，可能需要较长时间
+- 如果遇到依赖问题，可能需要手动安装特定版本的依赖

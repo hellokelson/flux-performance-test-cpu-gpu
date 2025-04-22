@@ -18,5 +18,5 @@ bash run_comfyui_tests.sh
 
 echo -e "\n\n===== 测试完成 ====="
 echo "结果保存在 ./outputs/ 目录中"
-echo "性能比较图表: ./outputs/comfyui_precision_comparison.png"
-echo "性能测试报告: ./outputs/comfyui_amx_performance_report.md"
+echo "性能比较图表: ./outputs/flux_precision_comparison.png"
+echo "性能测试报告: ./outputs/flux_comfyui_performance_report.md"

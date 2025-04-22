@@ -55,6 +55,18 @@ if os.path.exists(os.path.join(model_path, 'flux1-dev.safetensors')):
 else:
     print('警告: 未找到 flux1-dev.safetensors 文件')
 
+# 检查并复制配置文件
+config_files = [f for f in os.listdir(model_path) if f.endswith('.yaml')]
+if config_files:
+    for config_file in config_files:
+        shutil.copy(
+            os.path.join(model_path, config_file),
+            os.path.join('models/checkpoints', config_file)
+        )
+        print(f'已复制配置文件: {config_file}')
+else:
+    print('警告: 未找到配置文件')
+
 end_time = time.time()
 print(f'模型下载完成，耗时: {end_time - start_time:.2f} 秒')
 "

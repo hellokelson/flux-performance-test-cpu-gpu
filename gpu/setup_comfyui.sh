@@ -23,7 +23,7 @@ source venv/bin/activate
 
 # 安装 PyTorch (GPU 版本)
 echo "安装 PyTorch GPU 版本..."
-pip install torch torchvision torchaudio
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 # 安装 ComfyUI 依赖
 echo "安装 ComfyUI 依赖..."
@@ -32,6 +32,10 @@ pip install -r requirements.txt
 # 安装性能监控工具
 echo "安装性能监控工具..."
 pip install psutil py-cpuinfo matplotlib numpy pandas pynvml
+
+# 安装 xformers 以提高性能
+echo "安装 xformers 以提高性能..."
+pip install xformers
 
 # 创建模型目录
 echo "创建模型目录..."
