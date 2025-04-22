@@ -13,6 +13,7 @@ mkdir -p models
 echo "正在下载 FLUX.1-dev 模型..."
 python -c "
 from diffusers import DiffusionPipeline
+import torch
 import time
 import os
 
@@ -23,8 +24,7 @@ print('开始下载模型...')
 pipe = DiffusionPipeline.from_pretrained(
     'black-forest-labs/FLUX.1-dev',
     use_safetensors=True,
-    variant='fp16',
-    torch_dtype='float32'  # CPU 使用 float32
+    torch_dtype=torch.float16  # 使用 float16 以测试 Intel AMX 加速器
 )
 
 # 将模型移至 CPU

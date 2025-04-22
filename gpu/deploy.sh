@@ -24,7 +24,6 @@ print('开始下载模型...')
 pipe = DiffusionPipeline.from_pretrained(
     'black-forest-labs/FLUX.1-dev',
     use_safetensors=True,
-    variant='fp16',
     torch_dtype=torch.float16  # GPU 使用 float16
 )
 
