@@ -4,7 +4,7 @@ set -e
 echo "开始 FLUX.1-dev ComfyUI 性能测试 (纯 CPU 环境)..."
 
 # 确保 ComfyUI 服务器已关闭
-pkill -f "python main.py --cpu" || true
+pkill -f "python3 main.py --cpu" || true
 sleep 2
 
 # 创建输出目录
@@ -12,14 +12,14 @@ mkdir -p outputs
 
 # 测试不同精度
 echo "测试 float32 精度..."
-python test_comfyui.py --precision full --output_dir ./outputs/float32_flux
+python3 test_comfyui.py --precision full --output_dir ./outputs/float32_flux
 
 echo "测试 float16 精度..."
-python test_comfyui.py --precision half --output_dir ./outputs/float16_flux
+python3 test_comfyui.py --precision half --output_dir ./outputs/float16_flux
 
 # 生成比较报告
 echo "生成性能比较报告..."
-python -c "
+python3 -c "
 import json
 import os
 import matplotlib.pyplot as plt

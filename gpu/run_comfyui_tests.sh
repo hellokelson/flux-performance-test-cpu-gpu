@@ -17,15 +17,15 @@ mkdir -p outputs
 
 # 运行 float16 (half) 精度测试
 echo "运行 float16 精度测试..."
-python test_comfyui.py --precision half --output_dir ./outputs --steps 30 --height 768 --width 768
+python3 test_comfyui.py --precision half --output_dir ./outputs --steps 30 --height 768 --width 768
 
 # 运行 float32 (full) 精度测试
 echo "运行 float32 精度测试..."
-python test_comfyui.py --precision full --output_dir ./outputs --steps 30 --height 768 --width 768
+python3 test_comfyui.py --precision full --output_dir ./outputs --steps 30 --height 768 --width 768
 
 # 生成比较报告
 echo "生成性能比较报告..."
-python -c "
+python3 -c "
 import json
 import os
 import matplotlib.pyplot as plt
