@@ -6,6 +6,7 @@ echo "开始 Intel AMX 加速器性能测试..."
 # 激活虚拟环境
 source flux_env/bin/activate
 
+pip install --upgrade diffusers
 # 创建输出目录
 mkdir -p outputs
 
