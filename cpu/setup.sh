@@ -14,11 +14,11 @@ source flux_env/bin/activate
 # 安装 PyTorch (CPU 版本)
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# 安装缺失的依赖项
-pip install sentencepiece protobuf
+# 安装特定版本的依赖项以解决兼容性问题
+pip install protobuf==3.20.3 sentencepiece==0.1.99 tokenizers
 
 # 安装 FLUX 模型依赖
-pip install diffusers transformers accelerate safetensors
+pip install diffusers transformers==4.30.2 accelerate safetensors
 
 # 安装性能监控工具
 pip install psutil py-cpuinfo
