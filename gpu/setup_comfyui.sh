@@ -27,7 +27,15 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 # 安装 ComfyUI 依赖
 echo "安装 ComfyUI 依赖..."
-pip install -r requirements.txt
+# ComfyUI 的 requirements.txt 文件在克隆的仓库中
+if [ -f "requirements.txt" ]; then
+    pip install -r requirements.txt
+else
+    echo "未找到 requirements.txt，安装常用依赖..."
+    pip install numpy>=1.25.0 einops transformers>=4.28.1 tokenizers>=0.13.3
+    pip install safetensors diffusers accelerate
+    pip install opencv-python pillow scipy
+fi
 
 # 安装性能监控工具
 echo "安装性能监控工具..."

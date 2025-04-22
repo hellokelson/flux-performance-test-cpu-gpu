@@ -67,6 +67,16 @@ if config_files:
 else:
     print('警告: 未找到配置文件')
 
+# 下载VAE
+print('下载VAE模型...')
+from huggingface_hub import hf_hub_download
+vae_path = hf_hub_download(
+    repo_id='stabilityai/sd-vae-ft-mse',
+    filename='vae-ft-mse-840000-ema-pruned.safetensors',
+    local_dir='models/vae'
+)
+print(f'VAE已下载到: {vae_path}')
+
 end_time = time.time()
 print(f'模型下载完成，耗时: {end_time - start_time:.2f} 秒')
 "
