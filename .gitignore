@@ -1,0 +1,58 @@
+# 测试生成的图像文件
+flux_*.png
+
+# 测试结果文件
+*_test_results.json
+all_performance_summary.json
+performance_summary.json
+
+# 图表文件
+flux_performance_comparison.png
+flux_all_performance_comparison.png
+
+# 实例IP文件
+*_instance_ip.txt
+
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+
+# 日志文件
+*.log
+
+# 临时文件
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# 系统文件
+.DS_Store
+Thumbs.db

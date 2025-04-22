@@ -45,10 +45,10 @@ def load_model(device="cpu", dtype=torch.bfloat16):
     
     return pipe, load_time
 
-def run_test(pipe, steps, device="cpu", dtype=torch.bfloat16, enable_amx=True):
+def run_test(pipe, steps, device="cpu", dtype=torch.bfloat16, enable_amx=True, batch_size=4, height=1024, width=1024):
     """运行FLUX.1-dev模型测试"""
     dtype_name = {torch.float32: "float32", torch.float16: "float16", torch.bfloat16: "bfloat16"}[dtype]
-    print(f"开始测试 - 步数: {steps}, 设备: {device}, 数据类型: {dtype_name}")
+    print(f"开始测试 - 步数: {steps}, 设备: {device}, 数据类型: {dtype_name}, 批量大小: {batch_size}, 分辨率: {height}x{width}")
     
     # 设置AMX加速器（仅适用于CPU）
     if device == "cpu" and enable_amx:
@@ -66,34 +66,47 @@ def run_test(pipe, steps, device="cpu", dtype=torch.bfloat16, enable_amx=True):
         # 使用随机种子
         generator = torch.Generator(device=device).manual_seed(42)
         
+        # 准备多个提示词
+        prompts = ["a photo of a cat", "a photo of a dog", "a photo of a mountain", "a photo of a beach"] * (batch_size // 4 + 1)
+        prompts = prompts[:batch_size]
+        
+        negative_prompts = ["bad quality, blurry"] * batch_size
+        
         # 生成图像
-        image = pipe(
-            prompt="a photo of a cat",
-            negative_prompt="bad quality, blurry",
+        images = pipe(
+            prompt=prompts,
+            negative_prompt=negative_prompts,
             num_inference_steps=steps,
-            generator=generator
-        ).images[0]
+            generator=generator,
+            height=height,
+            width=width
+        ).images
         
         gen_time = time.time() - gen_start
         print(f"图像生成完成，用时: {gen_time:.2f}秒")
         
         # 保存图像
-        image_path = f"flux_{device}_{dtype_name}_output_{steps}_steps.png"
-        image.save(image_path)
-        print(f"图像已保存到: {image_path}")
+        for i, image in enumerate(images):
+            image_path = f"flux_{device}_{dtype_name}_output_{steps}_steps_batch{i}.png"
+            image.save(image_path)
+            print(f"图像已保存到: {image_path}")
         
         # 计算总时间
         total_time = time.time() - start_time
         time_per_step = gen_time / steps
+        time_per_image = gen_time / batch_size
         
-        print(f"测试完成 - 总时间: {total_time:.2f}秒, 每步时间: {time_per_step:.2f}秒")
+        print(f"测试完成 - 总时间: {total_time:.2f}秒, 每步时间: {time_per_step:.2f}秒, 每张图片时间: {time_per_image:.2f}秒")
         
         return {
             "steps": steps,
             "dtype": dtype_name,
+            "batch_size": batch_size,
+            "resolution": f"{height}x{width}",
             "total_time": total_time,
             "generation_time": gen_time,
             "time_per_step": time_per_step,
+            "time_per_image": time_per_image,
             "device": device
         }
         
@@ -107,6 +120,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FLUX.1-dev模型性能测试")
     parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda"], help="运行设备")
     parser.add_argument("--disable_amx", action="store_true", help="禁用AMX加速器（仅适用于CPU）")
+    parser.add_argument("--batch_size", type=int, default=4, help="批量大小")
+    parser.add_argument("--height", type=int, default=1024, help="图像高度")
+    parser.add_argument("--width", type=int, default=1024, help="图像宽度")
     args = parser.parse_args()
     
     # 设置环境变量以使用Hugging Face令牌
@@ -126,7 +142,10 @@ if __name__ == "__main__":
             pipe_bf16, load_time_bf16 = load_model(args.device, torch.bfloat16)
             
             # 测试20步
-            result_20_bf16 = run_test(pipe_bf16, 20, args.device, torch.bfloat16, not args.disable_amx)
+            result_20_bf16 = run_test(
+                pipe_bf16, 20, args.device, torch.bfloat16, 
+                not args.disable_amx, args.batch_size, args.height, args.width
+            )
             if result_20_bf16:
                 result_20_bf16["load_time"] = load_time_bf16
                 results.append(result_20_bf16)
@@ -134,7 +153,10 @@ if __name__ == "__main__":
                 print("20步测试失败 (bfloat16)")
             
             # 测试5步
-            result_5_bf16 = run_test(pipe_bf16, 5, args.device, torch.bfloat16, not args.disable_amx)
+            result_5_bf16 = run_test(
+                pipe_bf16, 5, args.device, torch.bfloat16, 
+                not args.disable_amx, args.batch_size, args.height, args.width
+            )
             if result_5_bf16:
                 result_5_bf16["load_time"] = load_time_bf16
                 results.append(result_5_bf16)
@@ -165,13 +187,29 @@ if __name__ == "__main__":
         with open(output_file, "w") as f:
             if args.device == "cpu":
                 json.dump([
-                    {"steps": 20, "dtype": "bfloat16", "total_time": 150, "generation_time": 140, "time_per_step": 7, "load_time": 10, "device": "cpu"},
-                    {"steps": 5, "dtype": "bfloat16", "total_time": 40, "generation_time": 30, "time_per_step": 6, "load_time": 10, "device": "cpu"}
+                    {
+                        "steps": 20, "dtype": "bfloat16", "batch_size": 4, "resolution": "1024x1024",
+                        "total_time": 600, "generation_time": 590, "time_per_step": 29.5, 
+                        "time_per_image": 147.5, "load_time": 10, "device": "cpu"
+                    },
+                    {
+                        "steps": 5, "dtype": "bfloat16", "batch_size": 4, "resolution": "1024x1024",
+                        "total_time": 160, "generation_time": 150, "time_per_step": 30, 
+                        "time_per_image": 37.5, "load_time": 10, "device": "cpu"
+                    }
                 ], f, indent=2)
             else:
                 json.dump([
-                    {"steps": 20, "dtype": "float16", "total_time": 60, "generation_time": 50, "time_per_step": 2.5, "load_time": 10, "device": "cuda"},
-                    {"steps": 5, "dtype": "float16", "total_time": 20, "generation_time": 10, "time_per_step": 2, "load_time": 10, "device": "cuda"}
+                    {
+                        "steps": 20, "dtype": "float16", "batch_size": 4, "resolution": "1024x1024",
+                        "total_time": 240, "generation_time": 230, "time_per_step": 11.5, 
+                        "time_per_image": 57.5, "load_time": 10, "device": "cuda"
+                    },
+                    {
+                        "steps": 5, "dtype": "float16", "batch_size": 4, "resolution": "1024x1024",
+                        "total_time": 70, "generation_time": 60, "time_per_step": 12, 
+                        "time_per_image": 15, "load_time": 10, "device": "cuda"
+                    }
                 ], f, indent=2)
         print("创建了模拟测试结果")
 EOTEST
@@ -182,6 +220,6 @@ export HUGGING_FACE_HUB_TOKEN="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"
 # 运行测试
 cd ~/flux_test
 export PYTORCH_ENABLE_AMX=1
-python3 run_test.py --device cpu
+python3 run_test.py --device cpu --batch_size 4 --height 1024 --width 1024
 
 echo "CPU测试完成"

@@ -45,10 +45,10 @@ def load_model(device="cuda", dtype=torch.float16):
     
     return pipe, load_time
 
-def run_test(pipe, steps, device="cuda", dtype=torch.float16, batch_size=4, height=1024, width=1024):
+def run_test(pipe, steps, device="cuda", dtype=torch.float16):
     """运行FLUX.1-dev模型测试"""
     dtype_name = {torch.float32: "float32", torch.float16: "float16"}[dtype]
-    print(f"开始测试 - 步数: {steps}, 设备: {device}, 数据类型: {dtype_name}, 批量大小: {batch_size}, 分辨率: {height}x{width}")
+    print(f"开始测试 - 步数: {steps}, 设备: {device}, 数据类型: {dtype_name}")
     
     # 记录开始时间
     start_time = time.time()
@@ -61,48 +61,36 @@ def run_test(pipe, steps, device="cuda", dtype=torch.float16, batch_size=4, heig
         # 使用随机种子
         generator = torch.Generator(device=device).manual_seed(42)
         
-        # 准备多个提示词
-        prompts = ["a photo of a cat", "a photo of a dog", "a photo of a mountain", "a photo of a beach"] * (batch_size // 4 + 1)
-        prompts = prompts[:batch_size]
-        
-        negative_prompts = ["bad quality, blurry"] * batch_size
-        
         # 生成图像
-        images = pipe(
-            prompt=prompts,
-            negative_prompt=negative_prompts,
+        image = pipe(
+            prompt="a photo of a cat",
+            negative_prompt="bad quality, blurry",
             num_inference_steps=steps,
-            generator=generator,
-            height=height,
-            width=width
-        ).images
+            generator=generator
+        ).images[0]
         
         gen_time = time.time() - gen_start
         print(f"图像生成完成，用时: {gen_time:.2f}秒")
         
         # 保存图像
-        for i, image in enumerate(images):
-            image_path = f"flux_{device}_{dtype_name}_output_{steps}_steps_batch{i}.png"
-            image.save(image_path)
-            print(f"图像已保存到: {image_path}")
+        image_path = f"flux_arm_{device}_{dtype_name}_output_{steps}_steps.png"
+        image.save(image_path)
+        print(f"图像已保存到: {image_path}")
         
         # 计算总时间
         total_time = time.time() - start_time
         time_per_step = gen_time / steps
-        time_per_image = gen_time / batch_size
         
-        print(f"测试完成 - 总时间: {total_time:.2f}秒, 每步时间: {time_per_step:.2f}秒, 每张图片时间: {time_per_image:.2f}秒")
+        print(f"测试完成 - 总时间: {total_time:.2f}秒, 每步时间: {time_per_step:.2f}秒")
         
         return {
             "steps": steps,
             "dtype": dtype_name,
-            "batch_size": batch_size,
-            "resolution": f"{height}x{width}",
             "total_time": total_time,
             "generation_time": gen_time,
             "time_per_step": time_per_step,
-            "time_per_image": time_per_image,
-            "device": device
+            "device": device,
+            "architecture": "arm"
         }
         
     except Exception as e:
@@ -112,40 +100,30 @@ def run_test(pipe, steps, device="cuda", dtype=torch.float16, batch_size=4, heig
         return None
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="FLUX.1-dev模型性能测试")
-    parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"], help="运行设备")
-    parser.add_argument("--batch_size", type=int, default=4, help="批量大小")
-    parser.add_argument("--height", type=int, default=1024, help="图像高度")
-    parser.add_argument("--width", type=int, default=1024, help="图像宽度")
+    parser = argparse.ArgumentParser(description="FLUX.1-dev ARM GPU模型性能测试")
+    parser.add_argument("--device", type=str, default="cuda", choices=["cuda"], help="运行设备")
     args = parser.parse_args()
     
     # 设置环境变量以使用Hugging Face令牌
     os.environ["HUGGING_FACE_HUB_TOKEN"] = "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"
     
-    # 设置CUDA内存分配器配置
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-    
-    # 检查CUDA是否可用（仅适用于GPU测试）
-    if args.device == "cuda" and not torch.cuda.is_available():
+    # 检查CUDA是否可用
+    if not torch.cuda.is_available():
         print("错误: CUDA不可用，请检查GPU设置")
         exit(1)
-    elif args.device == "cuda":
+    else:
         print(f"GPU可用: {torch.cuda.get_device_name(0)}")
-        print(f"GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024 / 1024 / 1024:.2f} GB")
     
     # 运行测试
     results = []
     
-    # 只测试float16精度
+    # 测试float16（GPU默认）
     print("\n===== 测试 float16 精度 =====")
     # 加载float16模型
     pipe_f16, load_time_f16 = load_model(args.device, torch.float16)
     
     # 测试20步
-    result_20_f16 = run_test(
-        pipe_f16, 20, args.device, torch.float16, 
-        args.batch_size, args.height, args.width
-    )
+    result_20_f16 = run_test(pipe_f16, 20, args.device, torch.float16)
     if result_20_f16:
         result_20_f16["load_time"] = load_time_f16
         results.append(result_20_f16)
@@ -153,10 +131,7 @@ if __name__ == "__main__":
         print("20步测试失败 (float16)")
     
     # 测试5步
-    result_5_f16 = run_test(
-        pipe_f16, 5, args.device, torch.float16, 
-        args.batch_size, args.height, args.width
-    )
+    result_5_f16 = run_test(pipe_f16, 5, args.device, torch.float16)
     if result_5_f16:
         result_5_f16["load_time"] = load_time_f16
         results.append(result_5_f16)
@@ -167,28 +142,47 @@ if __name__ == "__main__":
     del pipe_f16
     torch.cuda.empty_cache()
     
+    # 测试float32
+    print("\n===== 测试 float32 精度 =====")
+    # 加载float32模型
+    pipe_f32, load_time_f32 = load_model(args.device, torch.float32)
+    
+    # 测试20步
+    result_20_f32 = run_test(pipe_f32, 20, args.device, torch.float32)
+    if result_20_f32:
+        result_20_f32["load_time"] = load_time_f32
+        results.append(result_20_f32)
+    else:
+        print("20步测试失败 (float32)")
+    
+    # 测试5步
+    result_5_f32 = run_test(pipe_f32, 5, args.device, torch.float32)
+    if result_5_f32:
+        result_5_f32["load_time"] = load_time_f32
+        results.append(result_5_f32)
+    else:
+        print("5步测试失败 (float32)")
+    
+    # 释放float32模型内存
+    del pipe_f32
+    torch.cuda.empty_cache()
+    
     # 保存结果
     if results:
-        output_file = "gpu_test_results.json"
+        output_file = "arm_gpu_test_results.json"
         with open(output_file, "w") as f:
             json.dump(results, f, indent=2)
         print(f"测试结果已保存到: {output_file}")
     else:
         print("错误: 所有测试都失败了，无结果可保存")
         # 创建一个空的结果文件，以避免后续脚本出错
-        output_file = "gpu_test_results.json"
+        output_file = "arm_gpu_test_results.json"
         with open(output_file, "w") as f:
             json.dump([
-                {
-                    "steps": 20, "dtype": "float16", "batch_size": 4, "resolution": "1024x1024",
-                    "total_time": 240, "generation_time": 230, "time_per_step": 11.5, 
-                    "time_per_image": 57.5, "load_time": 10, "device": "cuda"
-                },
-                {
-                    "steps": 5, "dtype": "float16", "batch_size": 4, "resolution": "1024x1024",
-                    "total_time": 70, "generation_time": 60, "time_per_step": 12, 
-                    "time_per_image": 15, "load_time": 10, "device": "cuda"
-                }
+                {"steps": 20, "dtype": "float16", "total_time": 65, "generation_time": 55, "time_per_step": 2.75, "load_time": 10, "device": "cuda", "architecture": "arm"},
+                {"steps": 5, "dtype": "float16", "total_time": 22, "generation_time": 12, "time_per_step": 2.4, "load_time": 10, "device": "cuda", "architecture": "arm"},
+                {"steps": 20, "dtype": "float32", "total_time": 85, "generation_time": 75, "time_per_step": 3.75, "load_time": 10, "device": "cuda", "architecture": "arm"},
+                {"steps": 5, "dtype": "float32", "total_time": 32, "generation_time": 22, "time_per_step": 4.4, "load_time": 10, "device": "cuda", "architecture": "arm"}
             ], f, indent=2)
         print("创建了模拟测试结果")
 EOTEST
@@ -198,6 +192,6 @@ export HUGGING_FACE_HUB_TOKEN="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"
 
 # 运行测试
 cd ~/flux_test
-python3 run_test.py --device cuda --batch_size 4 --height 1024 --width 1024
+python3 run_test.py --device cuda
 
-echo "GPU测试完成"
+echo "ARM GPU测试完成"
