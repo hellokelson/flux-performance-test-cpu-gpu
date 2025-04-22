@@ -1,87 +1,185 @@
 #!/bin/bash
 set -e
 
-echo "开始 Intel AMX 加速器性能测试 (ComfyUI)..."
+echo "开始 Intel AMX 加速器性能测试 (纯 CPU 环境)..."
 
-# 确保之前的 ComfyUI 服务器已关闭
-pkill -f "python main.py --cpu" || true
-sleep 2
+# 创建虚拟环境（如果不存在）
+if [ ! -d "cpu_env" ]; then
+    echo "创建虚拟环境..."
+    python3 -m venv cpu_env
+fi
 
 # 激活虚拟环境
-cd comfyui/ComfyUI
-source venv/bin/activate
-cd ../../
+source cpu_env/bin/activate
+
+# 安装依赖
+echo "安装依赖..."
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install diffusers transformers accelerate safetensors
+pip install numpy matplotlib psutil py-cpuinfo pillow
 
 # 创建输出目录
 mkdir -p outputs
 
-# 检查模型文件是否存在
-if [ ! -f "comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors" ]; then
-    echo "警告: 模型文件不存在，尝试查找其他模型..."
-    ls -la comfyui/ComfyUI/models/checkpoints/
-    
-    # 尝试查找其他模型
-    MODEL_FILES=$(find comfyui/ComfyUI/models/checkpoints/ -name "*.safetensors" -o -name "*.ckpt" | head -1)
-    if [ -n "$MODEL_FILES" ]; then
-        echo "找到模型文件: $MODEL_FILES"
-        # 创建符号链接
-        ln -sf "$MODEL_FILES" comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors
-        echo "已创建符号链接: comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors -> $MODEL_FILES"
-    else
-        echo "错误: 未找到任何模型文件，请先下载模型"
-        exit 1
-    fi
-fi
-
-# 启动 ComfyUI 服务器
-echo "启动 ComfyUI 服务器..."
-cd comfyui/ComfyUI
-python main.py --cpu --port 8188 > comfyui_server.log 2>&1 &
-SERVER_PID=$!
-cd ../../
-
-# 等待服务器启动
-echo "等待 ComfyUI 服务器启动..."
-for i in {1..60}; do
-    if curl -s http://localhost:8188/ > /dev/null; then
-        echo "ComfyUI 服务器已启动"
-        break
-    fi
-    if [ $i -eq 60 ]; then
-        echo "ComfyUI 服务器启动超时"
-        kill $SERVER_PID
-        cat comfyui/ComfyUI/comfyui_server.log
-        exit 1
-    fi
-    echo "等待中... ($i/60)"
-    sleep 1
-done
-
-# 显示服务器日志
-echo "ComfyUI 服务器日志:"
-tail -n 20 comfyui/ComfyUI/comfyui_server.log
-
-# 测试 API 是否可用
-echo "测试 API 是否可用..."
-curl -s http://localhost:8188/api/system-stats || echo "API 不可用"
-
-# 等待 API 完全初始化
-echo "等待 API 完全初始化..."
-sleep 5
-
 # 测试不同精度
-echo "测试 float32 精度 (full)..."
-python test_comfyui.py --precision full --output_dir ./outputs/float32_comfyui
+echo "测试 float32 精度..."
+python test_cpu_only.py --precision float32 --output_dir ./outputs/float32_cpu
 
-echo "测试 float16 精度 (half)..."
-python test_comfyui.py --precision half --output_dir ./outputs/float16_comfyui
+echo "测试 float16 精度..."
+python test_cpu_only.py --precision float16 --output_dir ./outputs/float16_cpu
+
+echo "测试 bfloat16 精度 (如果支持)..."
+python test_cpu_only.py --precision bfloat16 --output_dir ./outputs/bfloat16_cpu
 
 # 生成比较报告
 echo "生成性能比较报告..."
-# ... (保持原有代码)
+python -c "
+import json
+import os
+import matplotlib.pyplot as plt
+import numpy as np
 
-# 关闭 ComfyUI 服务器
-echo "关闭 ComfyUI 服务器..."
-kill $SERVER_PID || true
+# 读取各种精度的性能指标
+results = {}
+for precision, dir_name in [('float32', 'float32_cpu'), ('float16', 'float16_cpu'), ('bfloat16', 'bfloat16_cpu')]:
+    try:
+        file_path = f'./outputs/{dir_name}/cpu_performance_{precision}_metrics.json'
+        
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    data = data[-1]  # 使用最新的数据
+                results[precision] = data
+    except Exception as e:
+        print(f'读取 {precision} 数据时出错: {e}')
 
-echo "Intel AMX 加速器性能测试 (ComfyUI) 完成！"
+if not results:
+    print('没有找到性能指标数据')
+    exit(1)
+
+# 创建图表
+plt.figure(figsize=(12, 8))
+
+# 推理时间比较
+precisions = list(results.keys())
+inference_times = [results[p].get('inference_time', 0) for p in precisions]
+
+plt.subplot(2, 2, 1)
+plt.bar(precisions, inference_times, color=['blue', 'green', 'red'])
+plt.title('不同精度下的推理时间')
+plt.ylabel('时间 (秒)')
+for i, v in enumerate(inference_times):
+    plt.text(i, v + 0.1, f'{v:.2f}s', ha='center')
+
+# 加载时间比较
+load_times = [results[p].get('load_time', 0) for p in precisions]
+
+plt.subplot(2, 2, 2)
+plt.bar(precisions, load_times, color=['blue', 'green', 'red'])
+plt.title('不同精度下的模型加载时间')
+plt.ylabel('时间 (秒)')
+for i, v in enumerate(load_times):
+    plt.text(i, v + 0.1, f'{v:.2f}s', ha='center')
+
+# CPU 使用率比较
+cpu_avgs = [results[p].get('cpu_avg', 0) for p in precisions]
+
+plt.subplot(2, 2, 3)
+plt.bar(precisions, cpu_avgs, color=['blue', 'green', 'red'])
+plt.title('不同精度下的 CPU 平均使用率')
+plt.ylabel('使用率 (%)')
+for i, v in enumerate(cpu_avgs):
+    plt.text(i, v + 1, f'{v:.2f}%', ha='center')
+
+# 内存使用率比较
+memory_avgs = [results[p].get('memory_avg', 0) for p in precisions]
+
+plt.subplot(2, 2, 4)
+plt.bar(precisions, memory_avgs, color=['blue', 'green', 'red'])
+plt.title('不同精度下的内存平均使用率')
+plt.ylabel('使用率 (%)')
+for i, v in enumerate(memory_avgs):
+    plt.text(i, v + 1, f'{v:.2f}%', ha='center')
+
+plt.tight_layout()
+plt.savefig('./outputs/cpu_precision_comparison.png')
+print('性能比较图表已保存到 ./outputs/cpu_precision_comparison.png')
+
+# 生成文本报告
+has_amx = any(results[p].get('has_amx', False) for p in precisions)
+amx_status = '支持' if has_amx else '不支持'
+
+report = f'''# Intel AMX 加速器性能测试报告 (纯 CPU 环境)
+
+## 测试环境
+
+- CPU: {results[list(results.keys())[0]].get('device', 'CPU')}
+- 模型: {results[list(results.keys())[0]].get('model', 'Stable Diffusion')}
+- Intel AMX 加速器: {amx_status}
+- 图像分辨率: {results[list(results.keys())[0]].get('image_resolution', 'N/A')}
+- 推理步数: {results[list(results.keys())[0]].get('steps', 'N/A')}
+
+## 性能比较
+
+| 指标 | float32 | float16 | bfloat16 |
+|------|---------|---------|----------|
+'''
+
+# 添加推理时间
+report += f\"| 推理时间 | {results.get('float32', {}).get('inference_time', 'N/A'):.2f}s | {results.get('float16', {}).get('inference_time', 'N/A'):.2f}s | {results.get('bfloat16', {}).get('inference_time', 'N/A'):.2f}s |\\n\"
+
+# 添加加载时间
+report += f\"| 模型加载时间 | {results.get('float32', {}).get('load_time', 'N/A'):.2f}s | {results.get('float16', {}).get('load_time', 'N/A'):.2f}s | {results.get('bfloat16', {}).get('load_time', 'N/A'):.2f}s |\\n\"
+
+# 添加 CPU 使用率
+report += f\"| CPU 平均使用率 | {results.get('float32', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('float16', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('bfloat16', {}).get('cpu_avg', 'N/A'):.2f}% |\\n\"
+
+# 添加内存使用率
+report += f\"| 内存平均使用率 | {results.get('float32', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('float16', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('bfloat16', {}).get('memory_avg', 'N/A'):.2f}% |\\n\"
+
+# 计算加速比
+if 'float32' in results:
+    base_time = results['float32'].get('inference_time', 0)
+    if base_time > 0:
+        report += f'''
+## 加速比 (相对于 float32)
+
+'''
+        for precision in ['float16', 'bfloat16']:
+            if precision in results:
+                precision_time = results[precision].get('inference_time', 0)
+                if precision_time > 0:
+                    speedup = base_time / precision_time
+                    report += f\"- {precision}: {speedup:.2f}x\\n\"
+
+# 添加结论
+report += '''
+## 结论
+
+'''
+
+# 找出最快的精度
+if inference_times:
+    fastest_idx = np.argmin(inference_times)
+    fastest_precision = precisions[fastest_idx]
+    report += f\"- 在测试的精度中，{fastest_precision} 提供了最佳的推理性能。\\n\"
+
+# 如果有 AMX 支持，添加相关结论
+if has_amx and 'bfloat16' in results:
+    report += f\"- Intel AMX 加速器对 bfloat16 精度提供了加速。\\n\"
+
+# 添加内存使用的结论
+if memory_avgs:
+    lowest_mem_idx = np.argmin(memory_avgs)
+    lowest_mem_precision = precisions[lowest_mem_idx]
+    report += f\"- {lowest_mem_precision} 精度在内存使用方面最为高效。\\n\"
+
+# 保存报告
+with open('./outputs/cpu_amx_performance_report.md', 'w') as f:
+    f.write(report)
+
+print('性能测试报告已保存到 ./outputs/cpu_amx_performance_report.md')
+"
+
+echo "Intel AMX 加速器性能测试 (纯 CPU 环境) 完成！"

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-FLUX.1-dev 模型 CPU 推理性能测试脚本 (基于 ComfyUI)
+FLUX.1-dev 模型 CPU 推理性能测试脚本 (纯 CPU 环境)
 支持 Intel AMX 加速器测试
 """
 
@@ -12,57 +12,32 @@ import argparse
 import psutil
 import json
 import subprocess
-import requests
 import threading
 import numpy as np
-import matplotlib.pyplot as plt
+import torch
 from PIL import Image
 import sys
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="FLUX.1-dev ComfyUI CPU 推理测试")
+    parser = argparse.ArgumentParser(description="FLUX.1-dev CPU 推理测试")
     parser.add_argument("--prompt", type=str, default="一只可爱的小猫咪在草地上玩耍", help="生成图像的提示词")
     parser.add_argument("--negative_prompt", type=str, default="模糊的, 低质量的", help="负面提示词")
-    parser.add_argument("--steps", type=int, default=30, help="推理步数")
+    parser.add_argument("--steps", type=int, default=20, help="推理步数")
     parser.add_argument("--height", type=int, default=512, help="图像高度")
     parser.add_argument("--width", type=int, default=512, help="图像宽度")
-    parser.add_argument("--batch_size", type=int, default=1, help="批处理大小")
     parser.add_argument("--output_dir", type=str, default="./outputs", help="输出目录")
-    parser.add_argument("--precision", type=str, default="half", choices=["full", "half"], help="模型精度 (full=float32, half=float16)")
-    parser.add_argument("--comfyui_dir", type=str, default="./comfyui/ComfyUI", help="ComfyUI 目录")
-    parser.add_argument("--port", type=int, default=8188, help="ComfyUI 端口")
-    parser.add_argument("--start_server", action="store_true", help="是否启动 ComfyUI 服务器")
+    parser.add_argument("--precision", type=str, default="float16", choices=["float32", "float16", "bfloat16"], help="模型精度")
+    parser.add_argument("--model_path", type=str, default="./models/FLUX.1-dev", help="模型路径")
     return parser.parse_args()
 
 def check_amx_support():
     """检查系统是否支持 Intel AMX"""
     try:
-        # 方法 1: 检查 /proc/cpuinfo 中是否有 amx 标志
         with open('/proc/cpuinfo', 'r') as f:
             cpuinfo = f.read()
             if 'amx_bf16' in cpuinfo or 'amx_tile' in cpuinfo or 'amx_int8' in cpuinfo or 'amx' in cpuinfo:
                 print("系统支持 Intel AMX 加速器")
                 return True
-        
-        # 方法 2: 使用 lscpu 命令
-        try:
-            result = subprocess.run(['lscpu'], stdout=subprocess.PIPE, text=True)
-            if 'amx_bf16' in result.stdout or 'amx_tile' in result.stdout or 'amx_int8' in result.stdout or 'amx' in result.stdout:
-                print("系统支持 Intel AMX 加速器")
-                return True
-        except:
-            pass
-        
-        # 方法 3: 检查实例类型
-        try:
-            result = subprocess.run(['curl', '-s', 'http://169.254.169.254/latest/meta-data/instance-type'], stdout=subprocess.PIPE, text=True)
-            instance_type = result.stdout.strip()
-            if instance_type.startswith('m7i'):
-                print(f"检测到 {instance_type} 实例，支持 Intel AMX")
-                return True
-        except:
-            pass
-        
         print("系统不支持 Intel AMX 加速器")
         return False
     except Exception as e:
@@ -106,151 +81,6 @@ def monitor_resources(interval=1.0, stop_event=None):
         'memory_max': np.max(memory_usages) if memory_usages else 0
     }
 
-def create_workflow(args):
-    """创建 ComfyUI 工作流"""
-    workflow = {
-        "3": {
-            "inputs": {
-                "seed": 123456789,
-                "steps": args.steps,
-                "cfg": 7,
-                "sampler_name": "euler_ancestral",
-                "scheduler": "normal",
-                "denoise": 1,
-                "model": ["4", 0],
-                "positive": ["6", 0],
-                "negative": ["7", 0],
-                "latent_image": ["5", 0]
-            },
-            "class_type": "KSampler"
-        },
-        "4": {
-            "inputs": {
-                "ckpt_name": "flux_1_dev.safetensors",
-                "precision": args.precision  # "full" 或 "half"
-            },
-            "class_type": "CheckpointLoaderSimple"
-        },
-        "5": {
-            "inputs": {
-                "width": args.width,
-                "height": args.height,
-                "batch_size": 1
-            },
-            "class_type": "EmptyLatentImage"
-        },
-        "6": {
-            "inputs": {
-                "text": args.prompt,
-                "clip": ["4", 1]
-            },
-            "class_type": "CLIPTextEncode"
-        },
-        "7": {
-            "inputs": {
-                "text": args.negative_prompt,
-                "clip": ["4", 1]
-            },
-            "class_type": "CLIPTextEncode"
-        },
-        "8": {
-            "inputs": {
-                "samples": ["3", 0],
-                "vae": ["4", 2]
-            },
-            "class_type": "VAEDecode"
-        },
-        "9": {
-            "inputs": {
-                "filename_prefix": "output",
-                "images": ["8", 0]
-            },
-            "class_type": "SaveImage"
-        }
-    }
-    return workflow
-
-def run_inference(args, port=8188):
-    """运行推理并测量性能"""
-    api_url = f"http://127.0.0.1:{port}/api/queue"
-    
-    # 创建工作流
-    workflow = create_workflow(args)
-    print(f"发送请求到 {api_url}")
-    print(f"工作流: {json.dumps(workflow, indent=2)}")
-    
-    # 发送请求
-    start_time = time.time()
-    try:
-        # 检查服务器是否可用
-        try:
-            response = requests.get(f"http://127.0.0.1:{port}/api/system-stats")
-            print(f"系统状态: {response.text}")
-        except Exception as e:
-            print(f"获取系统状态失败: {e}")
-        
-        # 发送工作流
-        response = requests.post(api_url, json={"prompt": workflow})
-        print(f"API 响应状态码: {response.status_code}")
-        print(f"API 响应内容: {response.text}")
-        
-        if response.status_code != 200:
-            raise Exception(f"API 请求失败: {response.status_code}, {response.text}")
-        
-        response_json = response.json()
-        print(f"响应 JSON: {response_json}")
-        
-        if "prompt_id" not in response_json:
-            raise Exception(f"响应中没有 prompt_id: {response_json}")
-            
-        prompt_id = response_json["prompt_id"]
-        print(f"获取到 prompt_id: {prompt_id}")
-        
-        # 等待完成
-        while True:
-            response = requests.get(f"http://127.0.0.1:{port}/api/queue")
-            if response.status_code != 200:
-                print(f"获取队列状态失败: {response.status_code}, {response.text}")
-                break
-                
-            queue_status = response.json()
-            print(f"队列状态: {json.dumps(queue_status, indent=2)}")
-            
-            if "queue_running" not in queue_status or prompt_id not in queue_status["queue_running"]:
-                if "queue_pending" not in queue_status or prompt_id not in queue_status["queue_pending"]:
-                    break
-            
-            time.sleep(1)
-        
-        end_time = time.time()
-        inference_time = end_time - start_time
-        
-        # 获取生成的图像
-        history_url = f"http://127.0.0.1:{port}/api/history"
-        response = requests.get(history_url)
-        if response.status_code != 200:
-            print(f"获取历史记录失败: {response.status_code}, {response.text}")
-            return inference_time, None
-            
-        history = response.json()
-        print(f"历史记录: {json.dumps(history, indent=2)}")
-        
-        # 查找最新的输出
-        latest_output = None
-        if prompt_id in history:
-            outputs = history[prompt_id]["outputs"]
-            for node_id, node_output in outputs.items():
-                if "images" in node_output:
-                    latest_output = node_output["images"][0]["filename"]
-                    break
-        
-        return inference_time, latest_output
-    except Exception as e:
-        print(f"推理过程中出错: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
-
 def save_metrics(metrics, output_file):
     """保存性能指标"""
     with open(output_file, 'w') as f:
@@ -269,6 +99,14 @@ def main():
     cpu_info = get_cpu_info()
     print(f"CPU 信息: {cpu_info['brand_raw']}, {cpu_info['count']} 核心")
     
+    # 设置 PyTorch 线程数以充分利用 CPU
+    torch.set_num_threads(psutil.cpu_count(logical=True))
+    print(f"PyTorch 线程数: {torch.get_num_threads()}")
+    
+    # 确保 PyTorch 使用 CPU
+    if torch.cuda.is_available():
+        print("警告: 检测到 CUDA，但我们将强制使用 CPU")
+    
     # 开始资源监控
     stop_monitor = threading.Event()
     resource_data = {'cpu_avg': 0, 'cpu_max': 0, 'memory_avg': 0, 'memory_max': 0}
@@ -280,70 +118,126 @@ def main():
     monitor_thread.start()
     
     try:
+        # 查找模型文件
+        model_files = []
+        for root, dirs, files in os.walk("./"):
+            for file in files:
+                if file.endswith(".safetensors") or file.endswith(".ckpt"):
+                    model_files.append(os.path.join(root, file))
+        
+        if model_files:
+            print(f"找到以下模型文件:")
+            for i, file in enumerate(model_files):
+                print(f"{i+1}. {file}")
+            
+            model_path = model_files[0]
+            print(f"使用模型: {model_path}")
+        else:
+            print("未找到任何模型文件，尝试下载 Stable Diffusion 模型...")
+            
+            # 安装 huggingface_hub
+            subprocess.run([sys.executable, "-m", "pip", "install", "huggingface_hub"])
+            
+            from huggingface_hub import hf_hub_download
+            
+            # 下载 Stable Diffusion 模型
+            model_path = hf_hub_download(
+                repo_id="runwayml/stable-diffusion-v1-5",
+                filename="v1-5-pruned-emaonly.safetensors",
+                cache_dir="./models"
+            )
+            print(f"模型已下载到: {model_path}")
+        
+        # 根据指定精度设置 dtype
+        if args.precision == "float32":
+            dtype = torch.float32
+        elif args.precision == "float16":
+            dtype = torch.float16
+        elif args.precision == "bfloat16":
+            if hasattr(torch, "bfloat16"):
+                dtype = torch.bfloat16
+            else:
+                print("警告: PyTorch 不支持 bfloat16，使用 float16 代替")
+                dtype = torch.float16
+        
+        # 加载模型
+        print(f"开始加载模型，精度: {args.precision}")
+        load_start_time = time.time()
+        
+        # 使用 diffusers 加载模型
+        from diffusers import StableDiffusionPipeline
+        
+        pipe = StableDiffusionPipeline.from_pretrained(
+            model_path,
+            torch_dtype=dtype,
+            safety_checker=None,
+            requires_safety_checker=False
+        )
+        
+        # 确保模型在 CPU 上
+        pipe = pipe.to("cpu")
+        
+        load_time = time.time() - load_start_time
+        print(f"模型加载完成，耗时: {load_time:.2f} 秒")
+        
         # 执行推理
         print(f"开始生成图像，提示词: '{args.prompt}'")
-        inference_times = []
-        output_images = []
+        inference_start_time = time.time()
         
-        for i in range(args.batch_size):
-            try:
-                inference_time, output_image = run_inference(args, args.port)
-                inference_times.append(inference_time)
-                output_images.append(output_image)
-                
-                print(f"图像 {i+1}/{args.batch_size} 生成完成，耗时: {inference_time:.2f} 秒")
-                
-                # 复制生成的图像到输出目录
-                if output_image:
-                    src_path = os.path.join(args.comfyui_dir, "output", output_image)
-                    dst_path = os.path.join(args.output_dir, f"image_{i+1}.png")
-                    if os.path.exists(src_path):
-                        import shutil
-                        shutil.copy(src_path, dst_path)
-                        print(f"图像已保存到 {dst_path}")
-            except Exception as e:
-                print(f"生成图像 {i+1}/{args.batch_size} 时出错: {e}")
+        image = pipe(
+            prompt=args.prompt,
+            negative_prompt=args.negative_prompt,
+            num_inference_steps=args.steps,
+            height=args.height,
+            width=args.width
+        ).images[0]
+        
+        inference_time = time.time() - inference_start_time
+        print(f"图像生成完成，耗时: {inference_time:.2f} 秒")
+        
+        # 保存图像
+        image_path = os.path.join(args.output_dir, f"image_{args.precision}.png")
+        image.save(image_path)
+        print(f"图像已保存到: {image_path}")
         
         # 停止资源监控
         stop_monitor.set()
         monitor_thread.join(timeout=1)
         
-        # 计算并打印性能指标
-        if inference_times:
-            avg_inference_time = np.mean(inference_times)
-            
-            print("\n性能测试结果:")
-            print(f"平均推理时间: {avg_inference_time:.2f} 秒/图像")
-            print(f"CPU 平均使用率: {resource_data['cpu_avg']:.2f}%")
-            print(f"CPU 最大使用率: {resource_data['cpu_max']:.2f}%")
-            print(f"内存平均使用率: {resource_data['memory_avg']:.2f}%")
-            print(f"内存最大使用率: {resource_data['memory_max']:.2f}%")
-            
-            # 记录性能指标
-            metrics = {
-                'device': 'CPU',
-                'model': 'FLUX.1-dev',
-                'precision': args.precision,
-                'has_amx': has_amx,
-                'avg_inference_time': avg_inference_time,
-                'cpu_avg': resource_data['cpu_avg'],
-                'cpu_max': resource_data['cpu_max'],
-                'memory_avg': resource_data['memory_avg'],
-                'memory_max': resource_data['memory_max'],
-                'batch_size': args.batch_size,
-                'image_resolution': f"{args.width}x{args.height}",
-                'steps': args.steps
-            }
-            
-            # 保存性能指标
-            output_file = os.path.join(args.output_dir, f"comfyui_performance_{args.precision}_metrics.json")
-            save_metrics(metrics, output_file)
-            
-            print(f"\n所有图像已保存到 {args.output_dir} 目录")
-            print(f"性能指标已保存到 {output_file}")
-        else:
-            print("\n未能成功生成任何图像，无法计算性能指标。")
-    
+        # 记录性能指标
+        metrics = {
+            'device': 'CPU',
+            'model': os.path.basename(model_path),
+            'precision': args.precision,
+            'has_amx': has_amx,
+            'load_time': load_time,
+            'inference_time': inference_time,
+            'cpu_avg': resource_data['cpu_avg'],
+            'cpu_max': resource_data['cpu_max'],
+            'memory_avg': resource_data['memory_avg'],
+            'memory_max': resource_data['memory_max'],
+            'image_resolution': f"{args.width}x{args.height}",
+            'steps': args.steps
+        }
+        
+        # 保存性能指标
+        output_file = os.path.join(args.output_dir, f"cpu_performance_{args.precision}_metrics.json")
+        save_metrics(metrics, output_file)
+        
+        print("\n性能测试结果:")
+        print(f"模型加载时间: {load_time:.2f} 秒")
+        print(f"推理时间: {inference_time:.2f} 秒")
+        print(f"CPU 平均使用率: {resource_data['cpu_avg']:.2f}%")
+        print(f"CPU 最大使用率: {resource_data['cpu_max']:.2f}%")
+        print(f"内存平均使用率: {resource_data['memory_avg']:.2f}%")
+        print(f"内存最大使用率: {resource_data['memory_max']:.2f}%")
+        
+        print(f"\n性能指标已保存到 {output_file}")
+        
+    except Exception as e:
+        print(f"测试过程中出错: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         # 确保停止资源监控
         stop_monitor.set()
