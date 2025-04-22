@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-FLUX.1-dev 模型 CPU 推理性能测试脚本 (纯 CPU 环境)
+FLUX.1-dev 模型 CPU 推理性能测试脚本 (使用 ComfyUI 方式)
+专门用于测试 black-forest-labs/FLUX.1-dev 模型
 支持 Intel AMX 加速器测试
 """
 
@@ -17,6 +18,7 @@ import numpy as np
 import torch
 from PIL import Image
 import sys
+import importlib.util
 
 def parse_args():
     parser = argparse.ArgumentParser(description="FLUX.1-dev CPU 推理测试")
@@ -26,8 +28,8 @@ def parse_args():
     parser.add_argument("--height", type=int, default=512, help="图像高度")
     parser.add_argument("--width", type=int, default=512, help="图像宽度")
     parser.add_argument("--output_dir", type=str, default="./outputs", help="输出目录")
-    parser.add_argument("--precision", type=str, default="float16", choices=["float32", "float16", "bfloat16"], help="模型精度")
-    parser.add_argument("--model_path", type=str, default="", help="模型路径 (可选)")
+    parser.add_argument("--precision", type=str, default="half", choices=["full", "half"], help="模型精度 (full=float32, half=float16)")
+    parser.add_argument("--comfyui_dir", type=str, default="./comfyui/ComfyUI", help="ComfyUI 目录")
     return parser.parse_args()
 
 def check_amx_support():
@@ -103,9 +105,9 @@ def main():
     torch.set_num_threads(psutil.cpu_count(logical=True))
     print(f"PyTorch 线程数: {torch.get_num_threads()}")
     
-    # 确保 PyTorch 使用 CPU
-    if torch.cuda.is_available():
-        print("警告: 检测到 CUDA，但我们将强制使用 CPU")
+    # 添加 ComfyUI 路径
+    comfyui_path = os.path.abspath(args.comfyui_dir)
+    sys.path.append(comfyui_path)
     
     # 开始资源监控
     stop_monitor = threading.Event()
@@ -118,136 +120,112 @@ def main():
     monitor_thread.start()
     
     try:
-        # 查找模型
-        model_path = args.model_path
-        
-        # 如果没有指定模型路径，尝试查找模型目录
-        if not model_path:
-            # 首先检查是否有完整的模型目录
-            if os.path.exists("./models/FLUX.1-dev") and os.path.isdir("./models/FLUX.1-dev"):
-                model_path = "./models/FLUX.1-dev"
-            elif os.path.exists("./comfyui/ComfyUI/models/checkpoints/flux_1_dev") and os.path.isdir("./comfyui/ComfyUI/models/checkpoints/flux_1_dev"):
-                model_path = "./comfyui/ComfyUI/models/checkpoints/flux_1_dev"
-            elif os.path.exists("./models/FLUX.1-dev/flux1-dev.safetensors"):
-                model_path = "./models/FLUX.1-dev/flux1-dev.safetensors"
-            elif os.path.exists("./comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors"):
-                model_path = "./comfyui/ComfyUI/models/checkpoints/flux_1_dev.safetensors"
-        
-        # 如果仍然没有找到模型，使用预训练模型
-        if not model_path:
-            model_path = "runwayml/stable-diffusion-v1-5"
-            print(f"未找到本地模型，使用预训练模型: {model_path}")
-        else:
-            print(f"使用模型: {model_path}")
-        
-        # 根据指定精度设置 dtype
-        if args.precision == "float32":
-            dtype = torch.float32
-        elif args.precision == "float16":
-            dtype = torch.float16
-        elif args.precision == "bfloat16":
-            if hasattr(torch, "bfloat16"):
-                dtype = torch.bfloat16
+        # 检查 FLUX.1-dev 模型文件
+        model_path = os.path.join(comfyui_path, "models/checkpoints/flux_1_dev.safetensors")
+        if not os.path.exists(model_path):
+            print(f"警告: FLUX.1-dev 模型文件不存在: {model_path}")
+            
+            # 查找其他可能的位置
+            alt_paths = [
+                "./models/FLUX.1-dev/flux1-dev.safetensors",
+                "./models/flux_1_dev.safetensors",
+                "./comfyui/ComfyUI/models/checkpoints/flux1-dev.safetensors"
+            ]
+            
+            for alt_path in alt_paths:
+                if os.path.exists(alt_path):
+                    print(f"找到替代模型文件: {alt_path}")
+                    # 创建符号链接
+                    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                    if os.path.exists(model_path):
+                        os.remove(model_path)
+                    os.symlink(os.path.abspath(alt_path), model_path)
+                    print(f"已创建符号链接: {model_path} -> {alt_path}")
+                    break
             else:
-                print("警告: PyTorch 不支持 bfloat16，使用 float16 代替")
+                print("错误: 未找到 FLUX.1-dev 模型文件，请确保已下载模型")
+                return
+        
+        # 导入 ComfyUI 模块
+        try:
+            # 设置 ComfyUI 环境变量
+            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+            
+            # 导入必要的模块
+            import folder_paths
+            folder_paths.add_model_folder_path("checkpoints", os.path.join(comfyui_path, "models/checkpoints"))
+            
+            # 根据指定精度设置 dtype
+            if args.precision == "full":
+                dtype = torch.float32
+            else:  # half
                 dtype = torch.float16
-        
-        # 加载模型
-        print(f"开始加载模型，精度: {args.precision}")
-        load_start_time = time.time()
-        
-        # 尝试多种方法加载模型
-        pipe = None
-        
-        # 方法 1: 使用 StableDiffusionPipeline
-        if not pipe:
-            try:
-                from diffusers import StableDiffusionPipeline
-                print("尝试使用 StableDiffusionPipeline 加载模型...")
-                
-                pipe = StableDiffusionPipeline.from_pretrained(
-                    model_path,
-                    torch_dtype=dtype,
-                    safety_checker=None,
-                    requires_safety_checker=False
-                )
-                print("使用 StableDiffusionPipeline 加载成功")
-            except Exception as e:
-                print(f"使用 StableDiffusionPipeline 加载失败: {e}")
-        
-        # 方法 2: 使用 DiffusionPipeline
-        if not pipe:
-            try:
-                from diffusers import DiffusionPipeline
-                print("尝试使用 DiffusionPipeline 加载模型...")
-                
-                pipe = DiffusionPipeline.from_pretrained(
-                    model_path,
-                    torch_dtype=dtype,
-                    safety_checker=None,
-                    use_safetensors=True
-                )
-                print("使用 DiffusionPipeline 加载成功")
-            except Exception as e:
-                print(f"使用 DiffusionPipeline 加载失败: {e}")
-        
-        # 方法 3: 使用 AutoPipelineForText2Image
-        if not pipe:
-            try:
-                from diffusers import AutoPipelineForText2Image
-                print("尝试使用 AutoPipelineForText2Image 加载模型...")
-                
-                pipe = AutoPipelineForText2Image.from_pretrained(
-                    model_path,
-                    torch_dtype=dtype,
-                    use_safetensors=True
-                )
-                print("使用 AutoPipelineForText2Image 加载成功")
-            except Exception as e:
-                print(f"使用 AutoPipelineForText2Image 加载失败: {e}")
-        
-        # 如果所有方法都失败，使用预训练模型
-        if not pipe:
-            try:
-                from diffusers import StableDiffusionPipeline
-                print("所有方法都失败，使用预训练的 Stable Diffusion 模型...")
-                
-                pipe = StableDiffusionPipeline.from_pretrained(
-                    "runwayml/stable-diffusion-v1-5",
-                    torch_dtype=dtype,
-                    safety_checker=None,
-                    requires_safety_checker=False
-                )
-                print("使用预训练模型加载成功")
-            except Exception as e:
-                print(f"使用预训练模型加载失败: {e}")
-                raise
-        
-        # 确保模型在 CPU 上
-        pipe = pipe.to("cpu")
-        
-        load_time = time.time() - load_start_time
-        print(f"模型加载完成，耗时: {load_time:.2f} 秒")
-        
-        # 执行推理
-        print(f"开始生成图像，提示词: '{args.prompt}'")
-        inference_start_time = time.time()
-        
-        image = pipe(
-            prompt=args.prompt,
-            negative_prompt=args.negative_prompt,
-            num_inference_steps=args.steps,
-            height=args.height,
-            width=args.width
-        ).images[0]
-        
-        inference_time = time.time() - inference_start_time
-        print(f"图像生成完成，耗时: {inference_time:.2f} 秒")
-        
-        # 保存图像
-        image_path = os.path.join(args.output_dir, f"image_{args.precision}.png")
-        image.save(image_path)
-        print(f"图像已保存到: {image_path}")
+            
+            # 加载模型
+            print(f"开始加载 FLUX.1-dev 模型，精度: {args.precision}")
+            load_start_time = time.time()
+            
+            # 使用 ComfyUI 的方式加载模型
+            from comfy.sd import load_checkpoint_guess_config
+            model, clip, vae = load_checkpoint_guess_config(
+                model_path,
+                output_vae=True,
+                output_clip=True,
+                embedding_directory=None,
+                output_pooled=True,
+                dtype=dtype
+            )
+            
+            load_time = time.time() - load_start_time
+            print(f"模型加载完成，耗时: {load_time:.2f} 秒")
+            
+            # 执行推理
+            print(f"开始生成图像，提示词: '{args.prompt}'")
+            inference_start_time = time.time()
+            
+            # 使用 ComfyUI 的方式进行推理
+            from comfy.sd import CLIP
+            from comfy.sample import sample
+            from comfy.samplers import KSampler
+            
+            # 编码提示词
+            clip_encoder = CLIP(clip)
+            positive_prompt = clip_encoder.encode([args.prompt])
+            negative_prompt = clip_encoder.encode([args.negative_prompt])
+            
+            # 创建潜空间
+            latent = torch.zeros([1, 4, args.height // 8, args.width // 8])
+            
+            # 设置采样器
+            sampler = KSampler(model)
+            samples = sampler.sample(
+                positive_prompt, 
+                negative_prompt, 
+                latent, 
+                args.steps, 
+                7.0,  # cfg_scale
+                "euler_ancestral",  # sampler_name
+                "normal",  # scheduler
+                1.0  # denoise
+            )
+            
+            # 解码图像
+            from comfy.utils import latent_to_image
+            images = latent_to_image(vae, samples)
+            
+            inference_time = time.time() - inference_start_time
+            print(f"图像生成完成，耗时: {inference_time:.2f} 秒")
+            
+            # 保存图像
+            image = Image.fromarray(images[0])
+            image_path = os.path.join(args.output_dir, f"flux_image_{args.precision}.png")
+            image.save(image_path)
+            print(f"图像已保存到: {image_path}")
+            
+        except ImportError as e:
+            print(f"导入 ComfyUI 模块失败: {e}")
+            print("请确保 ComfyUI 已正确安装")
+            return
         
         # 停止资源监控
         stop_monitor.set()
@@ -256,7 +234,7 @@ def main():
         # 记录性能指标
         metrics = {
             'device': 'CPU',
-            'model': os.path.basename(model_path) if os.path.exists(model_path) else model_path,
+            'model': 'FLUX.1-dev',
             'precision': args.precision,
             'has_amx': has_amx,
             'load_time': load_time,
@@ -270,7 +248,7 @@ def main():
         }
         
         # 保存性能指标
-        output_file = os.path.join(args.output_dir, f"cpu_performance_{args.precision}_metrics.json")
+        output_file = os.path.join(args.output_dir, f"flux_performance_{args.precision}_metrics.json")
         save_metrics(metrics, output_file)
         
         print("\n性能测试结果:")
