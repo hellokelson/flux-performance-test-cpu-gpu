@@ -194,7 +194,6 @@ def main():
                 output_vae=True,
                 output_clip=True,
                 embedding_directory=None,
-                output_pooled=True,
                 dtype=dtype
             )
             

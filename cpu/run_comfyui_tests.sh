@@ -8,7 +8,6 @@ if [ ! -d "cpu_env" ]; then
     echo "创建虚拟环境..."
     python3 -m venv cpu_env
 fi
-
 # 激活虚拟环境
 source cpu_env/bin/activate
 
