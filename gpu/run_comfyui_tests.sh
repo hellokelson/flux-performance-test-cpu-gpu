@@ -17,11 +17,11 @@ mkdir -p outputs
 
 # 运行 float16 (half) 精度测试
 echo "运行 float16 精度测试..."
-python test_comfyui.py --precision half --output_dir ./outputs
+python test_comfyui.py --precision half --output_dir ./outputs --steps 30 --height 768 --width 768
 
 # 运行 float32 (full) 精度测试
 echo "运行 float32 精度测试..."
-python test_comfyui.py --precision full --output_dir ./outputs
+python test_comfyui.py --precision full --output_dir ./outputs --steps 30 --height 768 --width 768
 
 # 生成比较报告
 echo "生成性能比较报告..."
@@ -93,9 +93,8 @@ if os.path.exists(half_metrics_path) and os.path.exists(full_metrics_path):
 ## 测试环境
 
 - GPU: {half_metrics.get('gpu_name', 'Unknown')}
-- CPU: {half_metrics.get('cpu_brand_raw', 'Unknown')}
-- 图像分辨率: {half_metrics.get('image_resolution', '512x512')}
-- 推理步数: {half_metrics.get('steps', 20)}
+- 图像分辨率: {half_metrics.get('image_resolution', '768x768')}
+- 推理步数: {half_metrics.get('steps', 30)}
 
 ## 性能比较
 
@@ -120,6 +119,10 @@ if os.path.exists(half_metrics_path) and os.path.exists(full_metrics_path):
 
 - {'对于 FLUX.1-dev 模型，推荐使用 float16 (half) 精度，可以获得更好的性能表现。' if half_metrics.get('inference_time', 0) < full_metrics.get('inference_time', 0) else '对于 FLUX.1-dev 模型，如果追求更高的生成质量，可以考虑使用 float32 (full) 精度。'}
 - 在 GPU 资源有限的环境中，{'建议使用 float16 (half) 精度以节省 GPU 内存。' if half_metrics.get('gpu_memory_avg', 0) < full_metrics.get('gpu_memory_avg', 0) else '可以考虑使用更小的图像分辨率以节省 GPU 内存。'}
+
+## 图像质量比较
+
+请查看 ./outputs 目录下的 flux_image_half.png 和 flux_image_full.png 文件，比较不同精度下生成图像的质量差异。
 '''
     
     with open('./outputs/gpu_performance_report.md', 'w') as f:
