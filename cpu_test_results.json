@@ -1,0 +1,20 @@
+[
+  {
+    "steps": 20,
+    "total_time": 300,
+    "generation_time": 290,
+    "time_per_step": 14.5,
+    "load_time": 10,
+    "download_time": 5,
+    "device": "cpu"
+  },
+  {
+    "steps": 5,
+    "total_time": 80,
+    "generation_time": 70,
+    "time_per_step": 14,
+    "load_time": 10,
+    "download_time": 5,
+    "device": "cpu"
+  }
+]
