@@ -23,13 +23,13 @@ mkdir -p outputs
 
 # 测试不同精度
 echo "测试 float32 精度..."
-python test_cpu_only.py --precision float32 --output_dir ./outputs/float32_cpu
+python test_comfyui.py --precision float32 --output_dir ./outputs/float32_cpu
 
 echo "测试 float16 精度..."
-python test_cpu_only.py --precision float16 --output_dir ./outputs/float16_cpu
+python test_comfyui.py --precision float16 --output_dir ./outputs/float16_cpu
 
 echo "测试 bfloat16 精度 (如果支持)..."
-python test_cpu_only.py --precision bfloat16 --output_dir ./outputs/bfloat16_cpu
+python test_comfyui.py --precision bfloat16 --output_dir ./outputs/bfloat16_cpu
 
 # 生成比较报告
 echo "生成性能比较报告..."
