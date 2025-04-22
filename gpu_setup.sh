@@ -26,25 +26,43 @@ echo "===== 开始配置GPU环境 ====="
 
 # 更新系统
 echo "更新系统..."
+sudo dnf check-release-update
 sudo dnf update -y
+
+# 安装基本依赖
+echo "安装基本依赖..."
 sudo dnf install -y git python3-pip python3-devel gcc gcc-c++ make cmake wget
 
 # 安装NVIDIA驱动和CUDA
 echo "安装NVIDIA驱动和CUDA..."
-if ! command -v nvidia-smi &> /dev/null; then
-    sudo dnf install -y kernel-devel-$(uname -r) kernel-headers-$(uname -r)
-    sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
-    sudo dnf clean all
-    sudo dnf -y module install nvidia-driver:latest-dkms
-    sudo dnf -y install cuda
-    
-    # 设置环境变量
-    echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
-    echo 'export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
-    source ~/.bashrc
+
+# 安装DKMS
+echo "安装DKMS..."
+sudo dnf install -y dkms
+sudo systemctl enable --now dkms
+
+# 安装内核开发包和额外模块
+echo "安装内核开发包和额外模块..."
+if (uname -r | grep -q ^6.12.); then
+  sudo dnf install -y kernel-devel-$(uname -r) kernel6.12-modules-extra
 else
-    echo "NVIDIA驱动已安装，跳过安装"
+  sudo dnf install -y kernel-devel-$(uname -r) kernel-modules-extra
 fi
+
+# 升级到最新版本
+echo "升级到最新版本..."
+sudo dnf upgrade --releasever=latest -y
+
+# 安装NVIDIA驱动和CUDA工具包
+echo "安装NVIDIA驱动和CUDA工具包..."
+sudo dnf install -y nvidia-release
+sudo dnf install -y nvidia-driver
+sudo dnf install -y cuda-toolkit
+
+# 设置环境变量
+echo 'export PATH=/usr/local/cuda/bin:$PATH' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+source ~/.bashrc
 
 # 验证NVIDIA驱动安装
 echo "验证NVIDIA驱动安装..."
@@ -54,7 +72,7 @@ nvidia-smi
 echo "安装Python依赖..."
 python3 -m pip install --upgrade pip
 python3 -m pip install torch torchvision torchaudio
-python3 -m pip install numpy pillow requests huggingface_hub diffusers transformers accelerate safetensors
+python3 -m pip install numpy pillow requests huggingface_hub diffusers transformers accelerate safetensors protobuf sentencepiece
 
 # 创建测试目录
 echo "创建测试目录..."
@@ -77,6 +95,25 @@ if [ $? -ne 0 ]; then
     echo "错误: GPU实例设置脚本执行失败"
     exit 1
 fi
+
+# 重启GPU实例以应用NVIDIA驱动更改
+echo "重启GPU实例以应用NVIDIA驱动更改..."
+ssh -i "$PEM_PATH" -o StrictHostKeyChecking=no ec2-user@$GPU_IP "sudo reboot"
+
+# 等待实例重启
+echo "等待GPU实例重启..."
+sleep 60
+
+# 等待SSH可用
+echo "等待SSH连接恢复..."
+while ! ssh -i "$PEM_PATH" -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes ec2-user@$GPU_IP "echo SSH连接成功" &> /dev/null; do
+    echo "等待SSH连接..."
+    sleep 10
+done
+
+# 验证NVIDIA驱动安装
+echo "验证NVIDIA驱动安装..."
+ssh -i "$PEM_PATH" -o StrictHostKeyChecking=no ec2-user@$GPU_IP "nvidia-smi"
 
 # 执行测试脚本
 echo "执行GPU测试脚本..."

@@ -1,22 +1,10 @@
 [
   {
-    "steps": 20,
-    "total_time": 300,
-    "generation_time": 290,
-    "time_per_step": 14.5,
-    "load_time": 10,
-    "download_time": 5,
-    "components_load_time": 15,
-    "device": "cpu"
-  },
-  {
     "steps": 5,
-    "total_time": 80,
-    "generation_time": 70,
-    "time_per_step": 14,
-    "load_time": 10,
-    "download_time": 5,
-    "components_load_time": 15,
+    "total_time": 306.651225566864,
+    "generation_time": 249.30842113494873,
+    "time_per_step": 49.861684226989745,
+    "load_time": 56.846978425979614,
     "device": "cpu"
   }
 ]
