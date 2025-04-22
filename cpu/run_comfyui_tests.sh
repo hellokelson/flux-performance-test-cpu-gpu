@@ -8,6 +8,7 @@ if [ ! -d "cpu_env" ]; then
     echo "创建虚拟环境..."
     python3 -m venv cpu_env
 fi
+
 # 激活虚拟环境
 source cpu_env/bin/activate
 
@@ -16,6 +17,13 @@ echo "安装依赖..."
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 pip install diffusers transformers accelerate safetensors
 pip install numpy matplotlib psutil py-cpuinfo pillow
+
+# 安装特定版本的依赖项，解决兼容性问题
+echo "安装特定版本的依赖项..."
+pip install protobuf==3.20.3
+pip install sentencepiece==0.1.99
+pip install tokenizers==0.13.3
+pip install huggingface_hub==0.16.4
 
 # 创建输出目录
 mkdir -p outputs
