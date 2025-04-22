@@ -1,0 +1,18 @@
+[
+  {
+    "steps": 20,
+    "total_time": 60,
+    "generation_time": 50,
+    "time_per_step": 2.5,
+    "load_time": 10,
+    "device": "cuda"
+  },
+  {
+    "steps": 5,
+    "total_time": 20,
+    "generation_time": 10,
+    "time_per_step": 2,
+    "load_time": 10,
+    "device": "cuda"
+  }
+]

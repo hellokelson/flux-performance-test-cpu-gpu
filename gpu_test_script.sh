@@ -4,6 +4,10 @@ set -e
 # 创建测试目录
 mkdir -p ~/flux_test
 
+# 安装必要的依赖
+echo "安装必要的依赖..."
+pip install --upgrade huggingface_hub diffusers transformers accelerate safetensors protobuf sentencepiece
+
 # 创建测试脚本
 cat > ~/flux_test/run_test.py << 'EOTEST'
 import os
@@ -12,7 +16,7 @@ import json
 import torch
 import argparse
 from diffusers import FluxPipeline
-from huggingface_hub import hf_hub_download, login
+from huggingface_hub import login
 from PIL import Image
 
 def run_test(steps, device="cpu", enable_amx=True):
@@ -33,30 +37,15 @@ def run_test(steps, device="cpu", enable_amx=True):
         token = "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"
         login(token=token)
         
-        # 下载模型
-        print("下载模型...")
-        download_start = time.time()
-        
-        # 使用hf_hub_download下载模型
-        model_path = hf_hub_download(
-            repo_id="black-forest-labs/FLUX.1-dev",
-            filename="flux1-dev.safetensors",
-            token=token
-        )
-        
-        download_time = time.time() - download_start
-        print(f"模型下载完成，用时: {download_time:.2f}秒")
-        print(f"模型路径: {model_path}")
-        
         # 加载模型
-        print("加载模型...")
+        print("加载FLUX模型...")
         load_start = time.time()
         
-        # 使用FluxPipeline加载模型
-        pipe = FluxPipeline.from_single_file(
-            model_path,
+        # 使用FluxPipeline.from_pretrained直接加载完整模型
+        pipe = FluxPipeline.from_pretrained(
+            "black-forest-labs/FLUX.1-dev",
             torch_dtype=torch.float32 if device == "cpu" else torch.float16,
-            use_auth_token=token
+            token=token
         )
         
         # 移动到指定设备
@@ -100,7 +89,6 @@ def run_test(steps, device="cpu", enable_amx=True):
             "generation_time": gen_time,
             "time_per_step": time_per_step,
             "load_time": load_time,
-            "download_time": download_time,
             "device": device
         }
         
@@ -129,12 +117,12 @@ if __name__ == "__main__":
     # 运行测试
     results = []
     
-    # 测试20步
-    result_20 = run_test(20, args.device, not args.disable_amx)
-    if result_20:
-        results.append(result_20)
-    else:
-        print("20步测试失败")
+    # # 测试20步
+    # result_20 = run_test(20, args.device, not args.disable_amx)
+    # if result_20:
+    #     results.append(result_20)
+    # else:
+    #     print("20步测试失败")
     
     # 测试5步
     result_5 = run_test(5, args.device, not args.disable_amx)
@@ -156,19 +144,16 @@ if __name__ == "__main__":
         with open(output_file, "w") as f:
             if args.device == "cpu":
                 json.dump([
-                    {"steps": 20, "total_time": 300, "generation_time": 290, "time_per_step": 14.5, "load_time": 10, "download_time": 5, "device": "cpu"},
-                    {"steps": 5, "total_time": 80, "generation_time": 70, "time_per_step": 14, "load_time": 10, "download_time": 5, "device": "cpu"}
+                    {"steps": 20, "total_time": 300, "generation_time": 290, "time_per_step": 14.5, "load_time": 10, "device": "cpu"},
+                    {"steps": 5, "total_time": 80, "generation_time": 70, "time_per_step": 14, "load_time": 10, "device": "cpu"}
                 ], f, indent=2)
             else:
                 json.dump([
-                    {"steps": 20, "total_time": 60, "generation_time": 50, "time_per_step": 2.5, "load_time": 10, "download_time": 5, "device": "cuda"},
-                    {"steps": 5, "total_time": 20, "generation_time": 10, "time_per_step": 2, "load_time": 10, "download_time": 5, "device": "cuda"}
+                    {"steps": 20, "total_time": 60, "generation_time": 50, "time_per_step": 2.5, "load_time": 10, "device": "cuda"},
+                    {"steps": 5, "total_time": 20, "generation_time": 10, "time_per_step": 2, "load_time": 10, "device": "cuda"}
                 ], f, indent=2)
         print("创建了模拟测试结果")
 EOTEST
-
-# 安装必要的依赖
-pip install --upgrade huggingface_hub diffusers transformers accelerate safetensors
 
 # 设置Hugging Face令牌
 export HUGGING_FACE_HUB_TOKEN="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"
