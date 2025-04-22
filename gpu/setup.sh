@@ -7,13 +7,29 @@ echo "正在初始化 GPU (G6) 环境..."
 sudo dnf update -y
 sudo dnf install -y python3-pip python3-devel git wget htop
 
-# 安装 NVIDIA 驱动和 CUDA 工具包
-# 注意：G6 实例应该已经预装了 NVIDIA 驱动，但我们确保它已安装
+# 检查 NVIDIA 驱动是否已安装
 if ! command -v nvidia-smi &> /dev/null; then
-    echo "正在安装 NVIDIA 驱动..."
-    # Amazon Linux 2023 安装 NVIDIA 驱动
-    sudo dnf install -y kernel-devel-$(uname -r) gcc make
-    sudo dnf install -y nvidia-driver nvidia-driver-cuda
+    echo "NVIDIA 驱动未找到，尝试安装..."
+    
+    # 在 Amazon Linux 2023 上，G6 实例应该已经预装了 NVIDIA 驱动
+    # 如果没有，可以使用 NVIDIA 官方的驱动安装脚本
+    echo "注意: G6 实例应该已经预装了 NVIDIA 驱动"
+    echo "如果需要手动安装，请参考 AWS 文档: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html"
+    
+    # 检查是否有 CUDA 存储库
+    if sudo dnf repolist | grep -q "cuda"; then
+        echo "找到 CUDA 存储库，尝试安装 NVIDIA 驱动..."
+        sudo dnf install -y cuda-drivers
+    else
+        echo "未找到 CUDA 存储库，尝试添加 NVIDIA 存储库..."
+        # 添加 NVIDIA CUDA 存储库
+        sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo
+        sudo dnf clean all
+        sudo dnf install -y cuda-drivers
+    fi
+else
+    echo "NVIDIA 驱动已安装，版本信息:"
+    nvidia-smi
 fi
 
 # 创建虚拟环境
