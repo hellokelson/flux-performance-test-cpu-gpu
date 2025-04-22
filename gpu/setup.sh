@@ -3,20 +3,17 @@ set -e
 
 echo "正在初始化 GPU (G6) 环境..."
 
-# 更新系统并安装基础依赖
-sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv git wget htop
+# 更新系统并安装基础依赖 (Amazon Linux 2023 使用 dnf)
+sudo dnf update -y
+sudo dnf install -y python3-pip python3-devel git wget htop
 
 # 安装 NVIDIA 驱动和 CUDA 工具包
 # 注意：G6 实例应该已经预装了 NVIDIA 驱动，但我们确保它已安装
 if ! command -v nvidia-smi &> /dev/null; then
     echo "正在安装 NVIDIA 驱动..."
-    # 对于 Amazon Linux 2
-    sudo amazon-linux-extras install -y epel
-    sudo yum install -y gcc kernel-devel-$(uname -r)
-    sudo yum install -y nvidia-driver
-    # 对于 Ubuntu
-    # sudo apt-get install -y nvidia-driver-535
+    # Amazon Linux 2023 安装 NVIDIA 驱动
+    sudo dnf install -y kernel-devel-$(uname -r) gcc make
+    sudo dnf install -y nvidia-driver nvidia-driver-cuda
 fi
 
 # 创建虚拟环境

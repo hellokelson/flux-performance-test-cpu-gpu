@@ -3,9 +3,9 @@ set -e
 
 echo "正在初始化 CPU (M7i) 环境..."
 
-# 更新系统并安装基础依赖
-sudo apt-get update
-sudo apt-get install -y python3-pip python3-venv git wget htop
+# 更新系统并安装基础依赖 (Amazon Linux 2023 使用 dnf)
+sudo dnf update -y
+sudo dnf install -y python3-pip python3-devel git wget htop
 
 # 创建虚拟环境
 python3 -m venv flux_env
