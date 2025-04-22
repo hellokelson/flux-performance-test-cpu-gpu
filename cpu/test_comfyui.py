@@ -127,11 +127,11 @@ def main():
         # 使用 diffusers 库加载模型
         from diffusers import DiffusionPipeline
         
+        # 不使用 variant 参数，只使用 torch_dtype
         pipe = DiffusionPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev",
             torch_dtype=dtype,
-            use_safetensors=True,
-            variant="fp16" if dtype == torch.float16 else None
+            use_safetensors=True
         )
         
         # 确保模型在 CPU 上
