@@ -3,10 +3,12 @@ set -e
 
 echo "开始 Intel AMX 加速器性能测试..."
 
+# 确保使用兼容的 diffusers 版本
+pip install diffusers==0.21.4
+
 # 激活虚拟环境
 source flux_env/bin/activate
 
-pip install --upgrade diffusers
 # 创建输出目录
 mkdir -p outputs
 
@@ -123,16 +125,16 @@ report = f'''# Intel AMX 加速器性能测试报告
 '''
 
 # 添加推理时间
-report += f"| 平均推理时间 | {results.get('float32', {}).get('avg_inference_time', 'N/A'):.2f}s | {results.get('float16', {}).get('avg_inference_time', 'N/A'):.2f}s | {results.get('bfloat16', {}).get('avg_inference_time', 'N/A'):.2f}s | {results.get('int8', {}).get('avg_inference_time', 'N/A'):.2f}s |\n"
+report += f\"| 平均推理时间 | {results.get('float32', {}).get('avg_inference_time', 'N/A'):.2f}s | {results.get('float16', {}).get('avg_inference_time', 'N/A'):.2f}s | {results.get('bfloat16', {}).get('avg_inference_time', 'N/A'):.2f}s | {results.get('int8', {}).get('avg_inference_time', 'N/A'):.2f}s |\\n\"
 
 # 添加加载时间
-report += f"| 模型加载时间 | {results.get('float32', {}).get('load_time', 'N/A'):.2f}s | {results.get('float16', {}).get('load_time', 'N/A'):.2f}s | {results.get('bfloat16', {}).get('load_time', 'N/A'):.2f}s | {results.get('int8', {}).get('load_time', 'N/A'):.2f}s |\n"
+report += f\"| 模型加载时间 | {results.get('float32', {}).get('load_time', 'N/A'):.2f}s | {results.get('float16', {}).get('load_time', 'N/A'):.2f}s | {results.get('bfloat16', {}).get('load_time', 'N/A'):.2f}s | {results.get('int8', {}).get('load_time', 'N/A'):.2f}s |\\n\"
 
 # 添加 CPU 使用率
-report += f"| CPU 平均使用率 | {results.get('float32', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('float16', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('bfloat16', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('int8', {}).get('cpu_avg', 'N/A'):.2f}% |\n"
+report += f\"| CPU 平均使用率 | {results.get('float32', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('float16', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('bfloat16', {}).get('cpu_avg', 'N/A'):.2f}% | {results.get('int8', {}).get('cpu_avg', 'N/A'):.2f}% |\\n\"
 
 # 添加内存使用率
-report += f"| 内存平均使用率 | {results.get('float32', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('float16', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('bfloat16', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('int8', {}).get('memory_avg', 'N/A'):.2f}% |\n"
+report += f\"| 内存平均使用率 | {results.get('float32', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('float16', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('bfloat16', {}).get('memory_avg', 'N/A'):.2f}% | {results.get('int8', {}).get('memory_avg', 'N/A'):.2f}% |\\n\"
 
 # 计算加速比
 if 'float32' in results and all(p in results for p in ['float16', 'bfloat16', 'int8']):
@@ -156,17 +158,17 @@ report += '''
 if inference_times:
     fastest_idx = np.argmin(inference_times)
     fastest_precision = precisions[fastest_idx]
-    report += f"- 在测试的精度中，{fastest_precision} 提供了最佳的推理性能。\n"
+    report += f\"- 在测试的精度中，{fastest_precision} 提供了最佳的推理性能。\\n\"
 
 # 如果有 AMX 支持，添加相关结论
 if has_amx:
-    report += f"- Intel AMX 加速器对 bfloat16 精度提供了显著的加速。\n"
+    report += f\"- Intel AMX 加速器对 bfloat16 精度提供了显著的加速。\\n\"
 
 # 添加内存使用的结论
 if memory_avgs:
     lowest_mem_idx = np.argmin(memory_avgs)
     lowest_mem_precision = precisions[lowest_mem_idx]
-    report += f"- {lowest_mem_precision} 精度在内存使用方面最为高效。\n"
+    report += f\"- {lowest_mem_precision} 精度在内存使用方面最为高效。\\n\"
 
 # 保存报告
 with open('./outputs/amx_performance_report.md', 'w') as f:
