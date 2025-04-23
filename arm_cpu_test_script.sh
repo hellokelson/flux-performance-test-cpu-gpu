@@ -27,7 +27,7 @@ def load_model(device="cpu", dtype=torch.float32):
     load_start = time.time()
     
     # 登录Hugging Face
-    token = "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"
+    token = "HUGGINGFACE_ACCESS_TOKEN"
     login(token=token)
     
     # 使用FluxPipeline.from_pretrained直接加载完整模型
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # 设置环境变量以使用Hugging Face令牌
-    os.environ["HUGGING_FACE_HUB_TOKEN"] = "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"
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = "HUGGINGFACE_ACCESS_TOKEN"
     
     # 运行测试
     results = []
@@ -183,7 +183,7 @@ if __name__ == "__main__":
 EOTEST
 
 # 设置Hugging Face令牌
-export HUGGING_FACE_HUB_TOKEN="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"
+export HUGGING_FACE_HUB_TOKEN="HUGGINGFACE_ACCESS_TOKEN"
 
 # 运行测试
 cd ~/flux_test

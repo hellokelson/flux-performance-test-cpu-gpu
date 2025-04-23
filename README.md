@@ -22,6 +22,8 @@
 
 ## 使用方法
 
+替换代码中的“HUGGINGFACE_ACCESS_TOKEN” ，修改为访问Hugging Face的实际的Access Token。
+
 ### 一键执行所有步骤
 
 ```bash

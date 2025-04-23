@@ -27,7 +27,7 @@ AMI InFo
 ## 部署ComfyUI
 GPU的EC2需要 安装nvidia driver、cuda，参考：https://repost.aws/articles/ARwfQMxiC-QMOgWykD9mco1w/how-do-i-install-nvidia-gpu-driver-cuda-toolkit-nvidia-container-toolkit-on-amazon-ec2-instances-running-amazon-linux-2023-al2023
 
-huggingface model access token: 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
+huggingface model access token: xxxxxx
 
 ## 执行测试
 我需要你帮我分别写一些脚本，在EC2上初始化环境、部署FLUX.1-dev模型。
